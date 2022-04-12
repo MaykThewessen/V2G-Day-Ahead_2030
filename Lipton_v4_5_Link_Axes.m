@@ -284,16 +284,16 @@ for jaar = 1:2
 %     area(time_array,(Wind_sum_producers + P_V2G_charge)/1000,'FaceColor','#FF0000') % Bright Red
 
     % Wind: as last foreground color
-    area(time_array,(Wind_sum_producers)/1000,'FaceColor','#77AC30') % Grey
+    area(time_array,(Wind_sum_producers - P_V2G_charge)/1000,'FaceColor','#77AC30') % Grey
 
 
     % ik wil graag overshot ook laten zien met stippelijn erboven over, of negatief?
     % negatief: opladen van batterij
 
     plot(time_array, Consume_curve/1000,'k')
+    plot(time_array, (Consume_curve + P_V2G_charge)/1000,'--r')
 
-
-    legend('Production total','V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption total')
+    legend('--','V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
     
     
@@ -399,7 +399,7 @@ ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_Link_Axes
+print -dpng -r300 Lipton_v4_5_fix_wind_overlaps_V2G
 
 
 %% Find names of largest producers
