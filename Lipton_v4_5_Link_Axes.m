@@ -158,7 +158,7 @@ jaren = [2022; 2030];
 
 
     %% Curtailment of PV
-    % PV is dominant
+    % PV is dominant now, wind is curtailed first, after that PV is curtailed.
     PV_sum_prod_hourly_curtail = PV_sum_prod_hourly;
     PV_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
     PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
@@ -173,6 +173,13 @@ jaren = [2022; 2030];
         %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
         xlim([2560 2760])
     end
+
+    PV_elec_price = price_electricity; % initiate
+
+    
+
+
+
     
     %% Curtailment of Wind
 
@@ -199,6 +206,10 @@ jaren = [2022; 2030];
         plot(Wind_sum_prod_hourly_curtail(:,2)+PV_sum_prod_hourly_curtail(:,2),'.-')
         legend('zon 2030','zon 2030 curtail','consume','wind 2030','wind 2030 curtail','zon+wind curtail')
     end
+
+    Wind_elec_price = price_electricity; % initiate
+
+
 
     %% Statistics
     % Production volumes
@@ -232,7 +243,26 @@ jaren = [2022; 2030];
 
 for jaar = 1:2
 
-    % initialize arrays:
+
+    %% PV and Wind electricity prices
+    PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0;
+    % PV_elec_price(:,jaar) = price_electricity(PV_sum_prod_hourly_curtail(:,jaar)>0,jaar); % 
+    PV_revenue_hourly(:,jaar) = PV_elec_price(:,jaar) .* PV_sum_prod_hourly_curtail(:,jaar); % [€/MWh * MWh] = [€] for every hour
+    PV_revenue_curt(jaar) = sum(PV_revenue_hourly(:,jaar)); % [€ per year for whole installed base]
+    PV_avg_revenue_per_MWp(jaar) = PV_revenue_curt(jaar) / P_zon_installed_array(jaar)  % P_zon_installed_array
+    PV_prod_curt_annual_volume(jaar) = sum(PV_sum_prod_hourly_curtail(:,jaar)); % [MWh]
+    PV_avg_elec_price_curt(jaar) = PV_revenue_curt(jaar) / PV_prod_curt_annual_volume(jaar) % [€/MWh]
+    
+
+    Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
+    Wind_revenue_hourly(:,jaar) = PV_elec_price(:,jaar) .* Wind_sum_prod_hourly_curtail(:,jaar);
+    Wind_revenue_curt(jaar) = sum(Wind_revenue_hourly(:,jaar)); % [€ per year for whole installed base]
+    Wind_avg_revenue_per_MW(jaar) = Wind_revenue_curt(jaar) / P_wind_installed_array(jaar) % [€/MW]
+    Wind_prod_curt_annual_volume(jaar) = sum(Wind_sum_prod_hourly_curtail(:,jaar)); % [MWh]
+    Wind_avg_elec_price_curt(jaar) = Wind_revenue_curt(jaar) / Wind_prod_curt_annual_volume(jaar) % [€/MWh]
+
+
+    %% initialize arrays:
 
     b = 0;      % b is temporary parameter to store value of last iteration
     %
@@ -273,11 +303,12 @@ for jaar = 1:2
     n_vehicles_V2G = n_vehicles * share_participate_V2G; % number of vehicles participating in V2G
     share_connected_to_charge_pole = 0.2; % 1 out of 5 is connected to charge pole on avg
     max_charge_power_all_connected = n_vehicles_V2G * OBC_power; % [MW]
+    n_vehicles_V2G_connected = n_vehicles_V2G * share_connected_to_charge_pole; % amount of vehicles that are connected to charging pole AND are willing to do V2G
     max_charge_power_inst = n_vehicles_V2G * OBC_power * share_connected_to_charge_pole; % [MW]
 
-    E_vehicle = 65e-3; %[MWh] storage per vehicle
-    E_vehicle_V2G_part = 0.5; %[-]
-    E_vehicle_V2G_fleet = n_vehicles_V2G * E_vehicle * E_vehicle_V2G_part; % [MWh]
+    E_vehicle = 65e-3; %[MWh] storage per vehicle = 65kWh
+    E_vehicle_V2G_part = 0.5; %[-] 50% of SoC is set to be available for V2G
+    E_vehicle_V2G_fleet = n_vehicles_V2G * E_vehicle * E_vehicle_V2G_part; % [MWh] all V2G vehicles determine max total energy charged - but power is limited by V2G share AND charge pole share
 
 
     for a = 1:(length(time_array)-1)
@@ -451,7 +482,7 @@ for jaar = 1:2
     xlabel('Electricity price [€/MWh]')
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
-    title(sprintf('Electricity prices - avg: %.1f, Std: %.1f, max: %.1f, avg fossil price: %.1f €/MWh',Price_avg, Price_sigma, Price_max, Price_only_pos_avg ) )
+    title(sprintf('Electricity prices - avg: %.1f, Std: %.1f, max: %.1f, avg fossil price: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_max(jaar), Price_only_pos_avg(jaar) ) )
 
 
 
