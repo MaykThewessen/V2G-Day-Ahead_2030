@@ -88,24 +88,29 @@ production_parameters = readtable('production_parameters.904566.csv'); %
 production_parameters.installed_power = production_parameters{:,"number_of_units"} .* production_parameters{:,"electricity_output_capacity_MW_"};
 
 % Sum up the renewable contributors
-P_solar = sum( production_parameters{[14,95,120],"installed_power"} );
+P_solar_installed_bron = sum( production_parameters{[14,95,120],"installed_power"} );
 % pv households = 120
 % pv buildings = 14
 % pv solar parks = 95
 
-P_wind = sum( production_parameters{110:112,"installed_power"} );
+P_wind_installed_bron = sum( production_parameters{110:112,"installed_power"} );
 % wind onshore 111
 % wind coastal 110
 % wind offshore 112
 
 % Scale solar and wind to:
 %P_zon_prognose_2030 = 33000; % [MW] laag scenario - als er veel grid congestie is - eprijs dempt flink - curtailment issues in overheidsregeling
+P_zon_2022_April = 14800; %[MW]
 P_zon_prognose_2030 = 46200; % [MW] hoog scenario - pv cost down
-zon_scale = P_zon_prognose_2030 / P_solar
+P_zon_installed_array = [P_zon_2022_April; P_zon_prognose_2030];
+zon_scale = P_zon_installed_array / P_solar_installed_bron
 
-%P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
+
+P_wind_2022_April = 5300 + 2460; %[MW] offshore + onshore - ratio = 68% wind = offshore
 P_wind_prognose_2030 = 8800 + 21300; % [MW] hoog scenario 8.8GW onshore + 21.3GW offshore reeds aangekodigd door overheid, plannen die dit bewerkstelligen
-wind_scale = P_wind_prognose_2030 / P_wind
+%P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
+P_wind_installed_array = [P_wind_2022_April; P_wind_prognose_2030];
+wind_scale = P_wind_installed_array / P_wind_installed_bron
 
 
 
@@ -116,7 +121,7 @@ jaren = [2022; 2030];
 
 
 
-for jaar = 1:2
+
 
 
 
@@ -128,29 +133,25 @@ for jaar = 1:2
     % 59 = offshore wind energy
     % 61 = PV households
     % A) subtract no marginal cost from power usage curve: construct residual load curve
-    PV_sum_producers = merit_order_ETM_rawimport{:,2}+merit_order_ETM_rawimport{:,44}+merit_order_ETM_rawimport{:,61} ;
-    Wind_sum_producers = merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59} ;
+    PV_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,2}+merit_order_ETM_rawimport{:,44}+merit_order_ETM_rawimport{:,61} ;
+    Wind_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59} ;
 
-    %% Scale production for 2030
-    if jaren(jaar) == 2030
-        P_solar(jaar) = zon_scale .* P_solar;
-        P_wind(jaar) = wind_scale .* P_wind;
+    %% Scale production for all years; 2022 and 2030
 
-        PV_sum_producers = zon_scale .* PV_sum_producers;
-        Wind_sum_producers = wind_scale .* Wind_sum_producers;
-    end
+    PV_sum_prod_hourly = zon_scale' .* PV_sum_prod_hourly_bron;
+    Wind_sum_prod_hourly = wind_scale' .* Wind_sum_prod_hourly_bron;
 
-    renewable_producers = PV_sum_producers + Wind_sum_producers;
-    residual_load_curve = Consume_curve - renewable_producers;
+    renewable_producers = PV_sum_prod_hourly + Wind_sum_prod_hourly;
+    residual_load_curves = Consume_curve - renewable_producers;
 
-    residual_fossil_production = residual_load_curve;
+    residual_fossil_production = residual_load_curves;
     residual_fossil_production(residual_fossil_production<0) = 0;
 
     % price_electricity = 21.486.*exp(residual_load_curve.*1e-4) ; % v2: y = 21,486e0,0001x, v1: y = 27,775e4E-05x
-    price_electricity = 21.486.*exp(residual_load_curve.*1e-4) - (residual_load_curve<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
+    price_electricity = 21.486.*exp(residual_load_curves.*1e-4) - (residual_load_curves<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
 
     price_electricity_raw = price_electricity;
-    price_electricity_only_pos = price_electricity(price_electricity>0);
+    % price_electricity_only_pos = price_electricity(price_electricity>0); % has a bug when using array as input, 12918x1 double values instead of expected 8760x2
 
     price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
 
@@ -161,8 +162,8 @@ for jaar = 1:2
     % Production volumes
     Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
     Cons_annual = sum(Consume_curve)/1000 % [GWh electricity]
-    Wind_annual = sum(Wind_sum_producers)/1000
-    Solar_annual = sum(PV_sum_producers) / 1000
+    Wind_annual = sum(Wind_sum_prod_hourly)/1000
+    Solar_annual = sum(PV_sum_prod_hourly) / 1000
     Prod_wind_perc = Wind_annual / Prod_annual
     Prod_solar_perc = Solar_annual / Prod_annual
 
@@ -171,24 +172,50 @@ for jaar = 1:2
     Price_max       =   max(price_electricity)
     Price_min       =   min(price_electricity)
     Price_sigma     =   std(price_electricity)
-    Price_zero_hours =  length(find(price_electricity==0))
-    Price_subzero_hours =  length(find(price_electricity<0))
-    Price_only_pos_avg     =   mean(price_electricity_only_pos)
+    Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
+    Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
+    Price_only_pos_avg     =   mean(price_electricity)
 
 
 
 
     %% Calculate Storage methods
     
-    % initialize arrays:
-    Storage = zeros(length(time_array),1);
-    P_V2G_discharge = Storage;
-    P_V2G_charge = Storage;
-    Storage3 = Storage;
+    Storage_unlim = zeros(length(time_array),1);
+    P_V2G_discharge = Storage_unlim;
+    P_V2G_charge = Storage_unlim;
+    Storage_V2G = Storage_unlim;
 
-    for a = 1:(length(time_array)-1)
+for jaar = 1:2
+
+    % initialize arrays:
+
+    b = 0;      % b is temporary parameter to store value of last iteration
+    %
+    %     for a = 1:(length(time_array)-1)
+    %         if residual_load_curve(a) < 0 % thus excess energy, than storage activated
+    %             %not possible: Storage_unlim(a) = Storage_unlim(a-1) + -residual_load_curve(a);
+    %             Storage_unlim(a) = b + -residual_load_curve(a); % b is storage amount of last iteration
+    %             b = Storage_unlim(a); % save the value here for the next iteration
+    %         end
+    %     end
+
+    %% Unlimited storage algorithm:
+    % initiliaze first point:
+
+    residual_load_curve = residual_load_curves(:,jaar);
+
+    if residual_load_curve(1) < 0
+        Storage_unlim(1) = -residual_load_curve(1);
+    end
+% try-out: make it array compatible
+%     Storage_unlim = -residual_load_curve(1,:);
+%     Storage_unlim(Storage_unlim<0) = 0;
+
+    % for loop over other points - by adding on top of previous point - it resets to zero when more days are zero and starts over again.
+    for a = 2:(length(time_array)-1)
         if residual_load_curve(a) < 0 % thus excess energy, than storage activated
-            Storage(a+1) = Storage(a) + -residual_load_curve(a);
+            Storage_unlim(a) = Storage_unlim(a-1) + -residual_load_curve(a);
         end
     end
 
@@ -207,38 +234,38 @@ for jaar = 1:2
     E_vehicle = 65e-3; %[MWh] storage per vehicle
     E_vehicle_V2G_part = 0.5; %[-]
     E_vehicle_V2G_fleet = n_vehicles_V2G * E_vehicle * E_vehicle_V2G_part; % [MWh]
-    
+
 
     for a = 1:(length(time_array)-1)
 
         if residual_load_curve(a) < 0 % thus excess energy, than storage is charged
-            Storage3(a+1) = Storage3(a) + -residual_load_curve(a);
+            Storage_V2G(a+1) = Storage_V2G(a) + -residual_load_curve(a);
             P_V2G_charge(a+1) = -residual_load_curve(a); % If excess energy charge V2G
             if residual_load_curve(a) < -max_charge_power_inst % check charge power limit
-                Storage3(a+1) = Storage3(a) + max_charge_power_inst; % limit storage charging to max power and add energy stored
+                Storage_V2G(a+1) = Storage_V2G(a) + max_charge_power_inst; % limit storage charging to max power and add energy stored
                 P_V2G_charge(a+1) = max_charge_power_inst;
             end
-            if Storage3(a) > E_vehicle_V2G_fleet % limit Storage capacity (270GWh is 0.9M EV's with 290kWh V2G volume/year)
-                Storage3(a) = E_vehicle_V2G_fleet;
-                Storage3(a+1) = E_vehicle_V2G_fleet;
+            if Storage_V2G(a) > E_vehicle_V2G_fleet % limit Storage capacity (270GWh is 0.9M EV's with 290kWh V2G volume/year)
+                Storage_V2G(a) = E_vehicle_V2G_fleet;
+                Storage_V2G(a+1) = E_vehicle_V2G_fleet;
                 P_V2G_charge(a) = 0;
                 P_V2G_charge(a+1) = 0; % if storage is fully charged - no more charging possible thus 0 MW;
             end
 
         elseif residual_load_curve(a) > 0 % thus shortage of energy - fossil back up required
-            Storage3(a+1) = Storage3(a); % make sure storage is kept neutral if not used
-            if Storage3(a) > 0 % make sure storage can not deplete more than was charged before
-                Storage3(a+1) = Storage3(a) - residual_load_curve(a); % export of stored energy
-                P_V2G_discharge(a) = residual_load_curve(a); % Discharge V2G energy only when Storage Energy remaining is still >0.                
+            Storage_V2G(a+1) = Storage_V2G(a); % make sure storage is kept neutral if not used
+            if Storage_V2G(a) > 0 % make sure storage can not deplete more than was charged before
+                Storage_V2G(a+1) = Storage_V2G(a) - residual_load_curve(a); % export of stored energy
+                P_V2G_discharge(a) = residual_load_curve(a); % Discharge V2G energy only when Storage Energy remaining is still >0.
                 if residual_load_curve(a) > max_charge_power_inst
-                    Storage3(a+1) = Storage3(a) - max_charge_power_inst;
+                    Storage_V2G(a+1) = Storage_V2G(a) - max_charge_power_inst;
                     P_V2G_discharge(a) = max_charge_power_inst;
                 end
             else
-                Storage3(a) = 0; % make sure storage can not go below zero
-                Storage3(a+1) = 0;
+                Storage_V2G(a) = 0; % make sure storage can not go below zero
+                Storage_V2G(a+1) = 0;
             end
-            
+
         end
     end
 
@@ -256,7 +283,7 @@ for jaar = 1:2
     ylabel('Electrical Power [GW]')
     title('Production')
 
-    title(sprintf('Production - Year: %.0f, Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV, %.0f prct Wind, %.0f prct PV', jaren(jaar),Cons_annual/1000, P_wind(jaar)/1000  ,P_solar(jaar)/1000,  Prod_wind_perc*100,  Prod_solar_perc*100) )
+    title(sprintf('Year: %.0f, Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0f prct, PV gen: %.0f prct', jaren(jaar),Cons_annual/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
 
     % choose time3
     %start_point = 2500; % 7 June 2030
@@ -267,24 +294,24 @@ for jaar = 1:2
 
 
 
-    % V2G discharge    
-    area(time_array, (Wind_sum_producers + PV_sum_producers + residual_fossil_production)/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E 
+    % V2G discharge
+    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
 
     % Fossil residual
-    area(time_array, (Wind_sum_producers + PV_sum_producers + residual_fossil_production - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F 
+    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar) - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F
 
     % V2G charge: Wind + Solar
-    area(time_array,(Wind_sum_producers + PV_sum_producers)/1000,'FaceColor','#FF0000') % Bright Red = FF0000
+    area(time_array,(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar))/1000,'FaceColor','#FF0000') % Bright Red = FF0000
 
     % Solar (Solar-V2G charge)
-    area(time_array,(Wind_sum_producers + PV_sum_producers - P_V2G_charge)/1000,'FaceColor','#EDB120') % Yellow = EDB120
+    area(time_array,(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#EDB120') % Yellow = EDB120
     % area(time_array, residual_load_curve+merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59})
 
-%     % V2G Charge
-%     area(time_array,(Wind_sum_producers + P_V2G_charge)/1000,'FaceColor','#FF0000') % Bright Red
+    %     % V2G Charge
+    %     area(time_array,(Wind_sum_producers + P_V2G_charge)/1000,'FaceColor','#FF0000') % Bright Red
 
     % Wind: as last foreground color
-    area(time_array,(Wind_sum_producers - P_V2G_charge)/1000,'FaceColor','#77AC30') % Grey
+    area(time_array,(Wind_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#77AC30') % Grey
 
 
     % ik wil graag overshot ook laten zien met stippelijn erboven over, of negatief?
@@ -295,33 +322,33 @@ for jaar = 1:2
 
     legend('--','V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
-    
-    
+
+
 
 
 
 
     %% Plot B - Limited Storage only excess energy stored and fed back
     ax2 = nexttile;
-    
-    %Histogram of storage size
-%         figure
-%         h1 = histogram(Storage/1e3);
-%         h1.BinWidth = 5;
-%         xlim([0 600])
-%         ylabel('Hours per year')
-%         hold on
-%         yyaxis right
-%         ylabel('Annual coverage [%]')
-%         h2 = cdfplot(Storage/1e3);
-%         xlabel('GWh storage capacity')
-%         ylim([0 1.0])
-%         legend('Histogram','Cumulative distribution function')
 
-    plot(time_array,Storage/1000)
+    %Histogram of storage size
+    %         figure
+    %         h1 = histogram(Storage/1e3);
+    %         h1.BinWidth = 5;
+    %         xlim([0 600])
+    %         ylabel('Hours per year')
+    %         hold on
+    %         yyaxis right
+    %         ylabel('Annual coverage [%]')
+    %         h2 = cdfplot(Storage/1e3);
+    %         xlabel('GWh storage capacity')
+    %         ylim([0 1.0])
+    %         legend('Histogram','Cumulative distribution function')
+
+    plot(time_array,Storage_unlim/1000)
     hold on
     %plot(time_array,Residual_excess_cumsum/1000)
-    plot(time_array,Storage3/1000)
+    plot(time_array,Storage_V2G/1000)
 
     xlabel('Time')
     ylabel('Storage [GWh] positive is charging')
@@ -399,7 +426,7 @@ ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_fix_wind_overlaps_V2G
+print -dpng -r300 Lipton_v4_5_fix_array_calculation
 
 
 %% Find names of largest producers
