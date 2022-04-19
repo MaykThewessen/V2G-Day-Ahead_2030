@@ -79,6 +79,7 @@ Produce_curve = sum(m_o_producer{:,2:end},2); % [MW] data per hour
 
 %% Construct consume curve
 Consume_curve = sum(m_o_consumer{:,2:end},2);
+Consume_curve(:,2) = Consume_curve;
 
 %% Calculate installed power per type of generator:
 % Import production capacities
@@ -156,16 +157,59 @@ jaren = [2022; 2030];
     price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
 
 
+    %% Curtailment of PV
+    % PV is dominant
+    PV_sum_prod_hourly_curtail = PV_sum_prod_hourly;
+    PV_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
+    PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
 
+
+    if 1 == 2 % plot om te controleren:
+        plot(PV_sum_prod_hourly(:,2))
+        hold on
+        plot(PV_sum_prod_hourly_curtail(:,2))
+        plot(Consume_curve(:,2),'--')
+        legend('zon 2030','zon 2030 curtail','consume')
+        %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
+        xlim([2560 2760])
+    end
+    
+    %% Curtailment of Wind
+
+%     Wind is dominant:
+%     Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly;
+%     Wind_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
+%     Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<Consume_curve) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
+
+    Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly;
+    Wind_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0) - PV_sum_prod_hourly_curtail(residual_load_curves<0); % limit wind to max consumption power of country minus PV - when wind can supply more than country
+    Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<(Consume_curve-PV_sum_prod_hourly_curtail)) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<(Consume_curve-PV_sum_prod_hourly_curtail)); % limit wind to what is available from wind during 
+    
+
+    if 1 == 2
+        plot(PV_sum_prod_hourly(:,2))
+        hold on
+        plot(PV_sum_prod_hourly_curtail(:,2))
+        plot(Consume_curve(:,2),'--')
+        legend('zon 2030','zon 2030 curtail','consume')
+        %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
+        xlim([2560 2760])
+        plot(Wind_sum_prod_hourly(:,2))
+        plot(Wind_sum_prod_hourly_curtail(:,2),'--')
+        plot(Wind_sum_prod_hourly_curtail(:,2)+PV_sum_prod_hourly_curtail(:,2),'.-')
+        legend('zon 2030','zon 2030 curtail','consume','wind 2030','wind 2030 curtail','zon+wind curtail')
+    end
 
     %% Statistics
     % Production volumes
     Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
     Cons_annual = sum(Consume_curve)/1000 % [GWh electricity]
     Wind_annual = sum(Wind_sum_prod_hourly)/1000
+    Wind_annual_curtail = sum(Wind_sum_prod_hourly_curtail)/1000
     Solar_annual = sum(PV_sum_prod_hourly) / 1000
-    Prod_wind_perc = Wind_annual / Prod_annual
-    Prod_solar_perc = Solar_annual / Prod_annual
+    Solar_annual_curtail = sum(PV_sum_prod_hourly_curtail) / 1000
+    Prod_wind_perc = Wind_annual_curtail / Prod_annual
+    Prod_solar_perc = Solar_annual_curtail / Prod_annual
 
     % Electricity Prices
     Price_avg       =   mean(price_electricity)
@@ -283,7 +327,7 @@ for jaar = 1:2
     ylabel('Electrical Power [GW]')
     title('Production')
 
-    title(sprintf('Year: %.0f, Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0f prct, PV gen: %.0f prct', jaren(jaar),Cons_annual/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+    title(sprintf('Year: %.0f, Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0f prct, PV gen: %.0f prct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
 
     % choose time3
     %start_point = 2500; % 7 June 2030
@@ -426,7 +470,7 @@ ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_fix_array_calculation
+print -dpng -r300 Lipton_v4_5_fix_wind_pv_curtailment
 
 
 %% Find names of largest producers
