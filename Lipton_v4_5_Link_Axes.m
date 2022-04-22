@@ -148,14 +148,40 @@ jaren = [2022; 2030];
     residual_fossil_production = residual_load_curves;
     residual_fossil_production(residual_fossil_production<0) = 0;
 
+    % v1 price:
     % price_electricity = 21.486.*exp(residual_load_curve.*1e-4) ; % v2: y = 21,486e0,0001x, v1: y = 27,775e4E-05x
-    price_electricity = 21.486.*exp(residual_load_curves.*1e-4) - (residual_load_curves<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
+    %price_electricity = 21.486.*exp(residual_load_curves.*1e-4) - (residual_load_curves<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
+    
+    %v4 price:
+    % price for 2022 - 2023 non crisis prices used: y = 57,841*exp(0,0516*x
+    price_electricity(:,1) = 57.841.*exp(residual_load_curves(:,1).*0.0516e-3) - (residual_load_curves(:,1)<0)*57.841; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
+    
+    
+    % linear merit order price curve according to ETM model, see excel for fit - for 2030:
+    price_electricity(:,2) = 7.168/1000.*residual_fossil_production(:,2) + 59.8; % [€/MWh] since using fossil production load only, price is €0 when excess energy - V2G load not taken into account now
+    price_electricity(residual_fossil_production==0) = 0; % set price to 0 for moments of excess electricity
 
-    price_electricity_raw = price_electricity;
+    % make something that if no fossil prod; then elec price is 0.
+    % if fossil is needed; start price at 59.8
+
+    %price_electricity_raw = price_electricity;
     % price_electricity_only_pos = price_electricity(price_electricity>0); % has a bug when using array as input, 12918x1 double values instead of expected 8760x2
 
-    price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
-
+    %price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
+    
+    %% Curtailment split between PV and Wind, new: split to ratio of PV/Wind excess energy - OR: to ratio of PV/Wind in ratio to demand.
+    
+    Curtail_ratio = Consume_curve ./ renewable_producers .* (residual_load_curves<0); % if residual load is negative, then calculate curtail ratio
+    Curtail_ratio_topped = Curtail_ratio;
+    Curtail_ratio_topped = Curtail_ratio_topped + 1 .* (Curtail_ratio==0);
+    
+    if 1 == 2
+        plot(Curtail_ratio)
+        hold on
+        plot(Curtail_ratio_topped,'--')
+        legend('A','B','C','D')
+        xlim([0 500])
+    end
 
     %% Curtailment of PV
     % PV is dominant now, wind is curtailed first, after that PV is curtailed.
@@ -210,6 +236,24 @@ jaren = [2022; 2030];
     Wind_elec_price = price_electricity; % initiate
 
 
+    %% PV and Wind electricity prices
+
+    PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0; % set price to zero when PV does not produce, is maybe not necessary since PV production volume is still zero at these instances, thus when multiplying this does not add up, but still handy if non-weighted avg elec price is wanted
+    PV_revenue_hourly = PV_elec_price .* PV_sum_prod_hourly_curtail; % [€/MWh * MWh] = [€] for every hour
+    PV_revenue_curt = sum(PV_revenue_hourly); % [€ per year for whole installed base]
+    PV_avg_revenue_per_MWp = PV_revenue_curt ./ P_zon_installed_array'  % P_zon_installed_array
+    PV_prod_curt_annual_volume = sum(PV_sum_prod_hourly_curtail); % [MWh]
+    PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
+    
+
+    Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
+    Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
+    Wind_revenue_curt = sum(Wind_revenue_hourly); % [€ per year for whole installed base]
+    Wind_avg_revenue_per_MW = Wind_revenue_curt ./ P_wind_installed_array' % [€/MW]
+    Wind_prod_curt_annual_volume = sum(Wind_sum_prod_hourly_curtail); % [MWh]
+    Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [€/MWh]
+
+
 
     %% Statistics
     % Production volumes
@@ -228,39 +272,26 @@ jaren = [2022; 2030];
     Price_min       =   min(price_electricity)
     Price_sigma     =   std(price_electricity)
     Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
-    Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
-    Price_only_pos_avg     =   mean(price_electricity)
+    %Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
+    
+    elec_price_pos_location = price_electricity>0;
+    Price_only_pos_avg  =  mean(price_electricity.*elec_price_pos_location); %  
+
+    % deze werkt niet want conditional indexing met matrix A(A>0) output in series array, niet in matrix. Daarom als oplossing: vermenigvuldig met conditional indexing, dan blijft het in matrix format A.*(A>0)
+    % Price_only_pos_avg(1)  =  mean(price_electricity(price_electricity(:,1)>0,1));
+    % Price_only_pos_avg(2)  =  mean(price_electricity(price_electricity(:,2)>0,2)) % this shows the price during fossil production hours - non volume weighted
+
 
 
 
 
     %% Calculate Storage methods
-    
     Storage_unlim = zeros(length(time_array),1);
     P_V2G_discharge = Storage_unlim;
     P_V2G_charge = Storage_unlim;
     Storage_V2G = Storage_unlim;
 
 for jaar = 1:2
-
-
-    %% PV and Wind electricity prices
-    PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0;
-    % PV_elec_price(:,jaar) = price_electricity(PV_sum_prod_hourly_curtail(:,jaar)>0,jaar); % 
-    PV_revenue_hourly(:,jaar) = PV_elec_price(:,jaar) .* PV_sum_prod_hourly_curtail(:,jaar); % [€/MWh * MWh] = [€] for every hour
-    PV_revenue_curt(jaar) = sum(PV_revenue_hourly(:,jaar)); % [€ per year for whole installed base]
-    PV_avg_revenue_per_MWp(jaar) = PV_revenue_curt(jaar) / P_zon_installed_array(jaar)  % P_zon_installed_array
-    PV_prod_curt_annual_volume(jaar) = sum(PV_sum_prod_hourly_curtail(:,jaar)); % [MWh]
-    PV_avg_elec_price_curt(jaar) = PV_revenue_curt(jaar) / PV_prod_curt_annual_volume(jaar) % [€/MWh]
-    
-
-    Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
-    Wind_revenue_hourly(:,jaar) = PV_elec_price(:,jaar) .* Wind_sum_prod_hourly_curtail(:,jaar);
-    Wind_revenue_curt(jaar) = sum(Wind_revenue_hourly(:,jaar)); % [€ per year for whole installed base]
-    Wind_avg_revenue_per_MW(jaar) = Wind_revenue_curt(jaar) / P_wind_installed_array(jaar) % [€/MW]
-    Wind_prod_curt_annual_volume(jaar) = sum(Wind_sum_prod_hourly_curtail(:,jaar)); % [MWh]
-    Wind_avg_elec_price_curt(jaar) = Wind_revenue_curt(jaar) / Wind_prod_curt_annual_volume(jaar) % [€/MWh]
-
 
     %% initialize arrays:
 
@@ -299,13 +330,13 @@ for jaar = 1:2
 
     OBC_power = 11e-3; % [MW] bidirecitonal power transfer capability per EV
     n_vehicles = 2.2e6; % [2030]
-    share_participate_V2G = 0.4; %[-]
+    share_participate_V2G = 0.4; %[-] 
     n_vehicles_V2G = n_vehicles * share_participate_V2G; % number of vehicles participating in V2G
     share_connected_to_charge_pole = 0.2; % 1 out of 5 is connected to charge pole on avg
     max_charge_power_all_connected = n_vehicles_V2G * OBC_power; % [MW]
     n_vehicles_V2G_connected = n_vehicles_V2G * share_connected_to_charge_pole; % amount of vehicles that are connected to charging pole AND are willing to do V2G
     max_charge_power_inst = n_vehicles_V2G * OBC_power * share_connected_to_charge_pole; % [MW]
-
+    
     E_vehicle = 65e-3; %[MWh] storage per vehicle = 65kWh
     E_vehicle_V2G_part = 0.5; %[-] 50% of SoC is set to be available for V2G
     E_vehicle_V2G_fleet = n_vehicles_V2G * E_vehicle * E_vehicle_V2G_part; % [MWh] all V2G vehicles determine max total energy charged - but power is limited by V2G share AND charge pole share
@@ -447,16 +478,26 @@ for jaar = 1:2
     %ylabel('Electrical Power [MW]')
     %yyaxis right
 
-    plot(time_array,P_V2G_charge/1000)
-    hold on
-    plot(time_array,P_V2G_discharge/1000)
-    legend('Charge','Discharge')
+
+    plot(time_array,price_electricity(:,jaar),'Color','#D95319')
+    legend('Electricity price')
     xlabel('Time')
-    ylabel('V2G charge/discharge power GW')
+    ylabel('€/MWh')
     grid
     xlim([time_array(start_point), time_array(start_point+days*24)])
-    title('V2G charging and discharging')
-    %ylim([0 150])
+    title('Electricity prices')
+    ylim([0 250])
+
+%     plot(time_array,P_V2G_charge/1000)
+%     hold on
+%     plot(time_array,P_V2G_discharge/1000)
+%     legend('Charge','Discharge')
+%     xlabel('Time')
+%     ylabel('V2G charge/discharge power GW')
+%     grid
+%     xlim([time_array(start_point), time_array(start_point+days*24)])
+%     title('V2G charging and discharging')
+%     %ylim([0 150])
 
     %     %
     %     % Electricity Prices
@@ -474,15 +515,16 @@ for jaar = 1:2
 
     %% Plot D - histogram electricity price
     ax4 = nexttile;
-    h_elec = histogram(price_electricity);
+    h_elec = histogram(price_electricity(:,jaar));
     h_elec.BinWidth = 5;
 
     grid
-    xlim([0 150])
+    xlim([0 250])
+    ylim([0 1200])
     xlabel('Electricity price [€/MWh]')
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
-    title(sprintf('Electricity prices - avg: %.1f, Std: %.1f, max: %.1f, avg fossil price: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_max(jaar), Price_only_pos_avg(jaar) ) )
+    title(sprintf('Electricity prices - Annual avg: %.1f, Std: %.1f, max: %.1f, avg fossil price: %.1f €/MWh, PV avg feed-in: %.1f €/MWh, Wind avg feed-in: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_max(jaar), Price_only_pos_avg(jaar), PV_avg_elec_price_curt(jaar), Wind_avg_elec_price_curt(jaar) ) )
 
 
 
@@ -501,7 +543,7 @@ ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_fix_wind_pv_curtailment
+print -dpng -r300 Lipton_v4_5_two_merit_orders
 
 
 %% Find names of largest producers
