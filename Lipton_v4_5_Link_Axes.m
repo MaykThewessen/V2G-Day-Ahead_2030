@@ -242,15 +242,26 @@ jaren = [2022; 2030];
     PV_revenue_hourly = PV_elec_price .* PV_sum_prod_hourly_curtail; % [€/MWh * MWh] = [€] for every hour
     PV_revenue_curt = sum(PV_revenue_hourly); % [€ per year for whole installed base]
     PV_avg_revenue_per_MWp = PV_revenue_curt ./ P_zon_installed_array'  % P_zon_installed_array
+    PV_prod_all_annual_volume = sum(PV_sum_prod_hourly); % [MWh]
     PV_prod_curt_annual_volume = sum(PV_sum_prod_hourly_curtail); % [MWh]
+    PV_energy_curtailed_part = (PV_prod_all_annual_volume - PV_prod_curt_annual_volume) ./ PV_prod_all_annual_volume % [ratio]
+    PV_full_load_factor_avail = PV_prod_all_annual_volume ./ (P_zon_installed_array'*365*24) % [hours/year]
+    PV_full_load_factor_curt = PV_prod_curt_annual_volume ./ (P_zon_installed_array'*365*24) % [hours/year]
+    PV_avg_elec_price_avail = PV_revenue_curt ./ PV_prod_all_annual_volume % [€/MWh]
     PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
-    
+
+
 
     Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
     Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
     Wind_revenue_curt = sum(Wind_revenue_hourly); % [€ per year for whole installed base]
     Wind_avg_revenue_per_MW = Wind_revenue_curt ./ P_wind_installed_array' % [€/MW]
+    Wind_prod_all_annual_volume = sum(Wind_sum_prod_hourly); % [MWh]
     Wind_prod_curt_annual_volume = sum(Wind_sum_prod_hourly_curtail); % [MWh]
+    Wind_energy_curtailed_part = (Wind_prod_all_annual_volume - Wind_prod_curt_annual_volume) ./ Wind_prod_all_annual_volume % [ratio]
+    Wind_full_load_factor_avail = Wind_prod_all_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
+    Wind_full_load_factor_curt = Wind_prod_curt_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
+    Wind_avg_elec_price_avail = Wind_revenue_curt ./ Wind_prod_all_annual_volume % [€/MWh]
     Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [€/MWh]
 
 
@@ -271,7 +282,13 @@ jaren = [2022; 2030];
     Price_max       =   max(price_electricity)
     Price_min       =   min(price_electricity)
     Price_sigma     =   std(price_electricity)
-    Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
+
+    Price_zero_hours_moments = price_electricity~=0; % puts a zero when value was zero, else puts a one.
+    Price_zero_hours_moments = Price_zero_hours_moments - 1; % convert ones to zero, and zeros to minus 1.
+    Price_zero_hours_moments = Price_zero_hours_moments .* -1; % converts minus 1 to +1
+    Price_zero_hours = sum(Price_zero_hours_moments) % sums all hours that have zero electricity price per year
+    
+    %Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
     %Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
     
     elec_price_pos_location = price_electricity>0;
@@ -524,7 +541,7 @@ for jaar = 1:2
     xlabel('Electricity price [€/MWh]')
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
-    title(sprintf('Electricity prices - Annual avg: %.1f, Std: %.1f, max: %.1f, avg fossil price: %.1f €/MWh, PV avg feed-in: %.1f €/MWh, Wind avg feed-in: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_max(jaar), Price_only_pos_avg(jaar), PV_avg_elec_price_curt(jaar), Wind_avg_elec_price_curt(jaar) ) )
+    title(sprintf('Electricity prices - Avg: %.1f, sigma: %.1f, €0/Mwh: %.0f hours/year, PV avg feed-in: %.1f €/MWh, Wind avg feed-in: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_zero_hours(jaar), PV_avg_elec_price_curt(jaar), Wind_avg_elec_price_curt(jaar) ) )
 
 
 
