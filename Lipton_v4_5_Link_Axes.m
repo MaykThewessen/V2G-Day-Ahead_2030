@@ -40,6 +40,13 @@ h0 = figure('Name','Electricity market NL 2030','pos',[0 0 2000 1200]); % width 
 tiledlayout(4,2)
 
 
+
+
+%% Simulate different years
+jaren = [2022; 2030];
+
+
+
 %% Ch.1 Energietransitiemodel input
 
 % import 'NL Power usage (Load)' as an CSV file:
@@ -72,17 +79,40 @@ merit_cons_max_top = merit_cons_max(:,1:find_top);
 
 
 
-
 %% Construct demand curve 2030
 Produce_curve = sum(m_o_producer{:,2:end},2); % [MW] data per hour
 
 
 %% Construct consume curve
-Consume_curve = sum(m_o_consumer{:,2:end},2);
+Consume_curve_orig = sum(m_o_consumer{:,2:end},2);
 
-increase_demand = 122/90; %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
-%increase_demand = 1;
-Consume_curve(:,2)  = Consume_curve .* increase_demand;
+Cons_annual_source_TWh = sum(Consume_curve_orig)/1e6;
+
+Consume_curve = cat(2,Consume_curve_orig);
+
+Cons_CBS_2019 = 113.4; % [TWh] consumption in NL according to CBS - pre corona source: https://www.cbs.nl/nl-nl/nieuws/2021/09/elektriciteitsproductie-stijgt-in-2020-naar-recordhoogte
+Prod_CBS_2019 = 117.6; % [TWh] production of electricity in NL according to CBS
+
+Energy_cons_increase_per_year = 0.03;
+
+Cons_expected_demand = [Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2022-2019)), Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2030-2019))] %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
+Cons_scale = Cons_expected_demand / Cons_annual_source_TWh
+
+Consume_curve  = Consume_curve .* Cons_scale;
+
+if 1 == 2 % histogram van Consumption power NL in 2030 - tussen 12 en 26 GW
+    histogram(Consume_curve(:,1)./1000)
+    hold on
+    histogram(Consume_curve(:,2)./1000)
+    xlabel('Consumption power in [GW]')
+    ylabel('Hourly occurances per year')
+    legend(sprintf('Year: 2022, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curve(:,1))/1e6, mean(Consume_curve(:,1)/1000)),sprintf('Year: 2030, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curve(:,2))/1e6, mean(Consume_curve(:,2)/1000)) ) 
+    grid
+    title('Histogram of hourly consumption')
+    print -dpng -r300 Histogram_consume_2022_2030
+end
+
+
 
 %% Calculate installed power per type of generator:
 % Import production capacities
@@ -106,21 +136,15 @@ P_wind_installed_bron = sum( production_parameters{95:97,"installed_power"} );
 %P_zon_prognose_2030 = 33000; % [MW] laag scenario - als er veel grid congestie is - eprijs dempt flink - curtailment issues in overheidsregeling
 P_zon_2022_April = 14800; %[MW]
 P_zon_prognose_2030 = 46200; % [MW] hoog scenario - pv cost down
-P_zon_installed_array = [P_zon_2022_April; P_zon_prognose_2030];
+P_zon_installed_array = [P_zon_2022_April, P_zon_prognose_2030];
 zon_scale = P_zon_installed_array / P_solar_installed_bron
 
 
 P_wind_2022_April = 5300 + 2460; %[MW] 7.76 GW currently offshore + onshore - ratio = 68% wind = offshore
-P_wind_prognose_2030 = 8800 + 21300; % [MW] hoog scenario 8.8GW onshore + 21.3GW offshore reeds aangekodigd door overheid, plannen die dit bewerkstelligen
-%P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
-P_wind_installed_array = [P_wind_2022_April; P_wind_prognose_2030];
+%P_wind_prognose_2030 = 8800 + 21300; % [MW] hoog scenario 8.8GW onshore + 21.3GW offshore reeds aangekodigd door overheid, plannen die dit bewerkstelligen, maar dit kan niet allemaal nuttig ingevoed worden zonder extra verbruik, dus verwacht: extra H2 electrolysers of extra elec industry
+P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
+P_wind_installed_array = [P_wind_2022_April, P_wind_prognose_2030];
 wind_scale = P_wind_installed_array / P_wind_installed_bron
-
-
-
-
-%% Simulate different years
-jaren = [2022; 2030];
 
 
 
@@ -142,8 +166,8 @@ jaren = [2022; 2030];
 
     %% Scale production for all years; 2022 and 2030
 
-    PV_sum_prod_hourly = zon_scale' .* PV_sum_prod_hourly_bron;
-    Wind_sum_prod_hourly = wind_scale' .* Wind_sum_prod_hourly_bron;
+    PV_sum_prod_hourly = zon_scale .* PV_sum_prod_hourly_bron;
+    Wind_sum_prod_hourly = wind_scale .* Wind_sum_prod_hourly_bron;
 
     renewable_producers = PV_sum_prod_hourly + Wind_sum_prod_hourly;
     residual_load_curves = Consume_curve - renewable_producers;
@@ -174,7 +198,8 @@ jaren = [2022; 2030];
     
     %% Curtailment split between PV and Wind, new: split to ratio of PV/Wind excess energy - OR: to ratio of PV/Wind in ratio to demand.
     
-    Curtail_ratio = Consume_curve ./ renewable_producers .* (residual_load_curves<0); % if residual load is negative, then calculate curtail ratio
+    Curtail_ratio = Consume_curve ./ renewable_producers .* (residual_load_curves<=0); % if residual load is negative, then calculate curtail ratio
+    Curtail_ratio(isnan(Curtail_ratio))=0; % a bug occurs when 0 renewable is produced with dividing by zero, therefore this solves it.
     Curtail_ratio_topped = Curtail_ratio;
     Curtail_ratio_topped = Curtail_ratio_topped + 1 .* (Curtail_ratio==0);
     
@@ -184,14 +209,19 @@ jaren = [2022; 2030];
         plot(Curtail_ratio_topped,'--')
         legend('A','B','C','D')
         xlim([0 500])
+        ylabel('fraction of renewable energy (Wind+PV) required to meet demand')
     end
 
     %% Curtailment of PV
     % PV is dominant now, wind is curtailed first, after that PV is curtailed.
-    PV_sum_prod_hourly_curtail = PV_sum_prod_hourly;
-    PV_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
-    PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
+%     PV_sum_prod_hourly_curtail = PV_sum_prod_hourly;
+%     PV_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit source to max consumption power of country when source can supply more than country
+%     PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit source to what is available from source during 
 
+
+    % PV is curtailed in ratio of excess energy in balance with wind
+    PV_sum_prod_hourly_curtail = PV_sum_prod_hourly .* Curtail_ratio_topped;
+    
 
     if 1 == 2 % plot om te controleren:
         plot(PV_sum_prod_hourly(:,2))
@@ -201,6 +231,8 @@ jaren = [2022; 2030];
         legend('zon 2030','zon 2030 curtail','consume')
         %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
         xlim([2560 2760])
+        grid
+        print -dpng -r300 zon_zon_ratio_curtailed
     end
 
     PV_elec_price = price_electricity; % initiate
@@ -217,9 +249,8 @@ jaren = [2022; 2030];
 %     Wind_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
 %     Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<Consume_curve) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
 
-    Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly;
-    Wind_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0) - PV_sum_prod_hourly_curtail(residual_load_curves<0); % limit wind to max consumption power of country minus PV - when wind can supply more than country
-    Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<(Consume_curve-PV_sum_prod_hourly_curtail)) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<(Consume_curve-PV_sum_prod_hourly_curtail)); % limit wind to what is available from wind during 
+    % Wind is curtailed in ratio to excess renewables
+    Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly .* Curtail_ratio_topped;
     
 
     if 1 == 2
@@ -234,6 +265,8 @@ jaren = [2022; 2030];
         plot(Wind_sum_prod_hourly_curtail(:,2),'--')
         plot(Wind_sum_prod_hourly_curtail(:,2)+PV_sum_prod_hourly_curtail(:,2),'.-')
         legend('zon 2030','zon 2030 curtail','consume','wind 2030','wind 2030 curtail','zon+wind curtail')
+        grid
+        print -dpng -r300 Zon_Wind_ratio_curtailed
     end
 
     Wind_elec_price = price_electricity; % initiate
@@ -449,7 +482,12 @@ for jaar = 1:2
     %% Plot A - generation
     ax1 = nexttile;
 
-    plot(time_array,Produce_curve/1000)
+    % V2G discharge
+    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
+
+
+    %plot(time_array,Produce_curve/1000)
+
     hold on
     xlabel('Time')
     ylabel('Electrical Power [GW]')
@@ -466,9 +504,7 @@ for jaar = 1:2
 
 
 
-    % V2G discharge
-    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
-
+   
     % Fossil residual
     area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar) - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F
 
@@ -492,7 +528,7 @@ for jaar = 1:2
     plot(time_array, Consume_curve(:,jaar)/1000,'k')
     plot(time_array, (Consume_curve(:,jaar) + P_V2G_charge)/1000,'--r')
 
-    legend('--','V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
+    legend('V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
 
 
