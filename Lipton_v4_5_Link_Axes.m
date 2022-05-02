@@ -43,7 +43,7 @@ tiledlayout(4,2)
 %% Ch.1 Energietransitiemodel input
 
 % import 'NL Power usage (Load)' as an CSV file:
-merit_order_ETM_rawimport = readtable('merit_order.904566.csv'); % ETM model - column 2 till 76 is .output - column 77 to 182 is .input powers - all in MW
+merit_order_ETM_rawimport = readtable('merit_order.911586.csv'); % ETM model - column 2 till 76 is .output - column 77 to 182 is .input powers - all in MW
 % converter to matrix for datetime and matrix for doubles
 time_array = merit_order_ETM_rawimport{:,1};
 merit_order_ETM_data = merit_order_ETM_rawimport{:,2:end};
@@ -79,22 +79,25 @@ Produce_curve = sum(m_o_producer{:,2:end},2); % [MW] data per hour
 
 %% Construct consume curve
 Consume_curve = sum(m_o_consumer{:,2:end},2);
-Consume_curve(:,2) = Consume_curve;
+
+increase_demand = 122/90; %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
+%increase_demand = 1;
+Consume_curve(:,2)  = Consume_curve .* increase_demand;
 
 %% Calculate installed power per type of generator:
 % Import production capacities
-production_parameters = readtable('production_parameters.904566.csv'); %
+production_parameters = readtable('production_parameters.911586.csv'); %
 
 %production_parameters.installed_power = production_parameters{:,2} .* production_parameters{:,3};
 production_parameters.installed_power = production_parameters{:,"number_of_units"} .* production_parameters{:,"electricity_output_capacity_MW_"};
 
 % Sum up the renewable contributors
-P_solar_installed_bron = sum( production_parameters{[14,95,120],"installed_power"} );
+P_solar_installed_bron = sum( production_parameters{[14,82,103],"installed_power"} ); % this is shit, row number changes with export ETM, hopefully will not change again, otherwise have to revise script to find based on text string, not on row number
 % pv households = 120
 % pv buildings = 14
 % pv solar parks = 95
 
-P_wind_installed_bron = sum( production_parameters{110:112,"installed_power"} );
+P_wind_installed_bron = sum( production_parameters{95:97,"installed_power"} );
 % wind onshore 111
 % wind coastal 110
 % wind offshore 112
@@ -107,7 +110,7 @@ P_zon_installed_array = [P_zon_2022_April; P_zon_prognose_2030];
 zon_scale = P_zon_installed_array / P_solar_installed_bron
 
 
-P_wind_2022_April = 5300 + 2460; %[MW] offshore + onshore - ratio = 68% wind = offshore
+P_wind_2022_April = 5300 + 2460; %[MW] 7.76 GW currently offshore + onshore - ratio = 68% wind = offshore
 P_wind_prognose_2030 = 8800 + 21300; % [MW] hoog scenario 8.8GW onshore + 21.3GW offshore reeds aangekodigd door overheid, plannen die dit bewerkstelligen
 %P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
 P_wind_installed_array = [P_wind_2022_April; P_wind_prognose_2030];
@@ -251,6 +254,52 @@ jaren = [2022; 2030];
     PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
 
 
+    if 1 == 2  % plot PV price over year 2022
+        plot(time_array,PV_elec_price(:,1))
+        ylabel('price [€/MWh]')
+        ylim([0 150])
+        yyaxis right
+        plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
+        ylabel('PV power generated [GW]')
+        legend('price PV 2022','power PV 2022')
+        %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
+        ylim([0 30])
+        grid
+        xlim([time_array(2401) time_array(2545)]) % 11 apri tot 17 april - of: 2 mei t/m 8 mei
+        title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(1), PV_avg_elec_price_avail(1)) )
+        print -dpng -r300 PV_price_2022_week_in_April_title
+    end
+
+       if 1 == 2  % plot PV price over year 2030
+        plot(time_array,PV_elec_price(:,1))
+        ylabel('price [€/MWh]')
+        yyaxis right
+        plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
+        ylabel('PV power generated [GW]')
+        legend('price PV 2022','power PV 2022')
+        %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
+        ylim([0 40])
+        grid
+        
+    end
+
+    if 1 == 2 % PV dynamic curtailment per year
+        h = figure;
+        plot(time_array,PV_sum_prod_hourly_curtail(:,2)./1000)
+        hold on
+        plot(time_array,PV_sum_prod_hourly(:,2)./1000,'--')
+        ylabel('PV Production [GW]')
+        grid
+        legend('PV 2030 with dynamic curtailment based on residual load NL','PV 2030 no dynamic curtailment (but with 10-15-20% DC/AC oversizing)')
+        xlim([time_array(2401) time_array(2545)])
+        
+        title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(2), PV_avg_elec_price_avail(2)) )
+%         yyaxis right
+%         plot(time_array,PV_elec_price(:,2))
+%         ylim([0 250])
+        % save_fig(h,'PV curtailment 2030 week in April');
+        print -dpng -r300 PV_curtailment_2030_week_in_April
+    end
 
     Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
     Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
@@ -440,8 +489,8 @@ for jaar = 1:2
     % ik wil graag overshot ook laten zien met stippelijn erboven over, of negatief?
     % negatief: opladen van batterij
 
-    plot(time_array, Consume_curve/1000,'k')
-    plot(time_array, (Consume_curve + P_V2G_charge)/1000,'--r')
+    plot(time_array, Consume_curve(:,jaar)/1000,'k')
+    plot(time_array, (Consume_curve(:,jaar) + P_V2G_charge)/1000,'--r')
 
     legend('--','V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
@@ -477,7 +526,7 @@ for jaar = 1:2
     ylabel('Storage [GWh] positive is charging')
     title('Unlimited Storage charging on excess residual load and discharging on shortage')
     grid
-    ylim([-1 200])
+    ylim([0 50])
     legend('Unlimited storage charging on excess energy',sprintf('Energy storage in %.0f V2G EVs with a fleet storage of %.f GWh',n_vehicles_V2G,E_vehicle_V2G_fleet/1000))
 
 
@@ -502,7 +551,9 @@ for jaar = 1:2
     ylabel('€/MWh')
     grid
     xlim([time_array(start_point), time_array(start_point+days*24)])
-    title('Electricity prices')
+    %title('Electricity prices')
+    title(sprintf('Electricity prices - Annual avg: %.1f, sigma: %.1f, Free electricity: %.0f hours/year',Price_avg(jaar), Price_sigma(jaar), Price_zero_hours(jaar) ) )
+
     ylim([0 250])
 
 %     plot(time_array,P_V2G_charge/1000)
@@ -541,16 +592,18 @@ for jaar = 1:2
     xlabel('Electricity price [€/MWh]')
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
-    title(sprintf('Electricity prices - Avg: %.1f, sigma: %.1f, €0/Mwh: %.0f hours/year, PV avg feed-in: %.1f €/MWh, Wind avg feed-in: %.1f €/MWh',Price_avg(jaar), Price_sigma(jaar), Price_zero_hours(jaar), PV_avg_elec_price_curt(jaar), Wind_avg_elec_price_curt(jaar) ) )
+    title(sprintf('Electricity prices - PV dyn curtailed: %.1f perc, PV avg worth: %.1f €/MWh, Wind dyn curtialed: %.1f perc, Wind avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(jaar), PV_avg_elec_price_avail(jaar), 100.*Wind_energy_curtailed_part(jaar), Wind_avg_elec_price_avail(jaar) ) )
+    
+    
+    
 
-
-
-
-
-end
 
 linkaxes([ax1 ax2 ax3],'x')
 ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
+
+end
+
+
 
 % % nog eens:
 %     xlim([time_array(start_point), time_array(start_point+days*24)])
@@ -560,7 +613,7 @@ ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_two_merit_orders
+print -dpng -r300 Lipton_v4_5_increase_demand
 
 
 %% Find names of largest producers
