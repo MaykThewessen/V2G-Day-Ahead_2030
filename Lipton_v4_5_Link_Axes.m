@@ -35,10 +35,6 @@ set(groot,'defaultLineLineWidth',2)
 % Load_readtable_1day = readtable('ACTUAL_TOTAL_LOAD_202102040000-202102050000.xml');
 
 
-%% initiliaze plot
-h0 = figure('Name','Electricity market NL 2030','pos',[0 0 2000 1200]); % width and height start and end points
-tiledlayout(4,2)
-
 
 
 
@@ -88,7 +84,7 @@ Consume_curve_orig = sum(m_o_consumer{:,2:end},2);
 
 Cons_annual_source_TWh = sum(Consume_curve_orig)/1e6;
 
-Consume_curve = cat(2,Consume_curve_orig);
+Consume_curves = cat(2,Consume_curve_orig);
 
 Cons_CBS_2019 = 113.4; % [TWh] consumption in NL according to CBS - pre corona source: https://www.cbs.nl/nl-nl/nieuws/2021/09/elektriciteitsproductie-stijgt-in-2020-naar-recordhoogte
 Prod_CBS_2019 = 117.6; % [TWh] production of electricity in NL according to CBS
@@ -98,15 +94,15 @@ Energy_cons_increase_per_year = 0.03;
 Cons_expected_demand = [Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2022-2019)), Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2030-2019))] %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
 Cons_scale = Cons_expected_demand / Cons_annual_source_TWh
 
-Consume_curve  = Consume_curve .* Cons_scale;
+Consume_curves  = Consume_curves .* Cons_scale;
 
 if 1 == 2 % histogram van Consumption power NL in 2030 - tussen 12 en 26 GW
-    histogram(Consume_curve(:,1)./1000)
+    histogram(Consume_curves(:,1)./1000)
     hold on
-    histogram(Consume_curve(:,2)./1000)
+    histogram(Consume_curves(:,2)./1000)
     xlabel('Consumption power in [GW]')
     ylabel('Hourly occurances per year')
-    legend(sprintf('Year: 2022, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curve(:,1))/1e6, mean(Consume_curve(:,1)/1000)),sprintf('Year: 2030, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curve(:,2))/1e6, mean(Consume_curve(:,2)/1000)) ) 
+    legend(sprintf('Year: 2022, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curves(:,1))/1e6, mean(Consume_curves(:,1)/1000)),sprintf('Year: 2030, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curves(:,2))/1e6, mean(Consume_curves(:,2)/1000)) )
     grid
     title('Histogram of hourly consumption')
     print -dpng -r300 Histogram_consume_2022_2030
@@ -153,242 +149,444 @@ wind_scale = P_wind_installed_array / P_wind_installed_bron
 
 
 
-    %% Step 2: Calculate price
-    % 2 = PV buildings rooftop solar (industry)
-    % 44 = PV large scale solar
-    % 57 = coastal wind energy
-    % 58 = inland wind energy
-    % 59 = offshore wind energy
-    % 61 = PV households
-    % A) subtract no marginal cost from power usage curve: construct residual load curve
-    PV_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,2}+merit_order_ETM_rawimport{:,44}+merit_order_ETM_rawimport{:,61} ;
-    Wind_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59} ;
+%% Step 2: Calculate price
+% 2 = PV buildings rooftop solar (industry)
+% 44 = PV large scale solar
+% 57 = coastal wind energy
+% 58 = inland wind energy
+% 59 = offshore wind energy
+% 61 = PV households
+% A) subtract no marginal cost from power usage curve: construct residual load curve
+PV_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,2}+merit_order_ETM_rawimport{:,44}+merit_order_ETM_rawimport{:,61} ;
+Wind_sum_prod_hourly_bron = merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59} ;
 
-    %% Scale production for all years; 2022 and 2030
+%% Scale production for all years; 2022 and 2030
 
-    PV_sum_prod_hourly = zon_scale .* PV_sum_prod_hourly_bron;
-    Wind_sum_prod_hourly = wind_scale .* Wind_sum_prod_hourly_bron;
+PV_sum_prod_hourly = zon_scale .* PV_sum_prod_hourly_bron;
+Wind_sum_prod_hourly = wind_scale .* Wind_sum_prod_hourly_bron;
 
-    renewable_producers = PV_sum_prod_hourly + Wind_sum_prod_hourly;
-    residual_load_curves = Consume_curve - renewable_producers;
+renewable_producers = PV_sum_prod_hourly + Wind_sum_prod_hourly;
+residual_load_curves = Consume_curves - renewable_producers; % [MW] Pure residual load - negative means excess renewable energy produced/available
 
-    residual_fossil_production = residual_load_curves;
-    residual_fossil_production(residual_fossil_production<0) = 0;
+residual_fossil_production = residual_load_curves;
+residual_fossil_production(residual_fossil_production<0) = 0; % [MW] only save positive residual load power hours to only save when fossil is contributing
 
-    % v1 price:
-    % price_electricity = 21.486.*exp(residual_load_curve.*1e-4) ; % v2: y = 21,486e0,0001x, v1: y = 27,775e4E-05x
-    %price_electricity = 21.486.*exp(residual_load_curves.*1e-4) - (residual_load_curves<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
-    
-    %v4 price:
-    % price for 2022 - 2023 non crisis prices used: y = 57,841*exp(0,0516*x
-    price_electricity(:,1) = 57.841.*exp(residual_load_curves(:,1).*0.0516e-3) - (residual_load_curves(:,1)<0)*57.841; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
-    
-    
-    % linear merit order price curve according to ETM model, see excel for fit - for 2030:
-    price_electricity(:,2) = 7.168/1000.*residual_fossil_production(:,2) + 59.8; % [€/MWh] since using fossil production load only, price is €0 when excess energy - V2G load not taken into account now
-    price_electricity(residual_fossil_production==0) = 0; % set price to 0 for moments of excess electricity
+% v1 price:
+% price_electricity = 21.486.*exp(residual_load_curve.*1e-4) ; % v2: y = 21,486e0,0001x, v1: y = 27,775e4E-05x
+%price_electricity = 21.486.*exp(residual_load_curves.*1e-4) - (residual_load_curves<0)*21.486; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
 
-    % make something that if no fossil prod; then elec price is 0.
-    % if fossil is needed; start price at 59.8
+%v4 price:
+% price for 2022 - 2023 non crisis prices used: y = 57,841*exp(0,0516*x
+price_electricity(:,1) = 57.841.*exp(residual_load_curves(:,1).*0.0516e-3) - (residual_load_curves(:,1)<0)*57.841; % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
 
-    %price_electricity_raw = price_electricity;
-    % price_electricity_only_pos = price_electricity(price_electricity>0); % has a bug when using array as input, 12918x1 double values instead of expected 8760x2
 
-    %price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
-    
-    %% Curtailment split between PV and Wind, new: split to ratio of PV/Wind excess energy - OR: to ratio of PV/Wind in ratio to demand.
-    
-    Curtail_ratio = Consume_curve ./ renewable_producers .* (residual_load_curves<=0); % if residual load is negative, then calculate curtail ratio
-    Curtail_ratio(isnan(Curtail_ratio))=0; % a bug occurs when 0 renewable is produced with dividing by zero, therefore this solves it.
-    Curtail_ratio_topped = Curtail_ratio;
-    Curtail_ratio_topped = Curtail_ratio_topped + 1 .* (Curtail_ratio==0);
-    
-    if 1 == 2
-        plot(Curtail_ratio)
-        hold on
-        plot(Curtail_ratio_topped,'--')
-        legend('A','B','C','D')
-        xlim([0 500])
-        ylabel('fraction of renewable energy (Wind+PV) required to meet demand')
-    end
+% linear merit order price curve according to ETM model, see excel for fit - for 2030:
+price_electricity(:,2) = 7.168/1000.*residual_fossil_production(:,2) + 59.8; % [€/MWh] since using fossil production load only, price is €0 when excess energy - V2G load not taken into account now
+price_electricity(residual_fossil_production==0) = 0; % set price to 0 for moments of excess electricity
 
-    %% Curtailment of PV
-    % PV is dominant now, wind is curtailed first, after that PV is curtailed.
+% make something that if no fossil prod; then elec price is 0.
+% if fossil is needed; start price at 59.8
+
+%price_electricity_raw = price_electricity;
+% price_electricity_only_pos = price_electricity(price_electricity>0); % has a bug when using array as input, 12918x1 double values instead of expected 8760x2
+
+%price_electricity(price_electricity<0) = 0; % set electricity price to zero when residual load is negative = excess energy
+
+%% Curtailment split between PV and Wind, new: split to ratio of PV/Wind excess energy - OR: to ratio of PV/Wind in ratio to demand.
+
+Curtail_ratio = Consume_curves ./ renewable_producers .* (residual_load_curves<=0); % if residual load is negative, then calculate curtail ratio
+Curtail_ratio(isnan(Curtail_ratio))=0; % a bug occurs when 0 renewable is produced with dividing by zero, therefore this solves it.
+Curtail_ratio_topped = Curtail_ratio;
+Curtail_ratio_topped = Curtail_ratio_topped + 1 .* (Curtail_ratio==0);
+
+if 1 == 2
+    plot(Curtail_ratio)
+    hold on
+    plot(Curtail_ratio_topped,'--')
+    legend('A','B','C','D')
+    xlim([0 500])
+    ylabel('fraction of renewable energy (Wind+PV) required to meet demand')
+end
+
+%% Curtailment of PV
+% PV is dominant now, wind is curtailed first, after that PV is curtailed.
 %     PV_sum_prod_hourly_curtail = PV_sum_prod_hourly;
 %     PV_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit source to max consumption power of country when source can supply more than country
-%     PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit source to what is available from source during 
+%     PV_sum_prod_hourly_curtail(PV_sum_prod_hourly<Consume_curve) = PV_sum_prod_hourly(PV_sum_prod_hourly<Consume_curve); % limit source to what is available from source during
 
 
-    % PV is curtailed in ratio of excess energy in balance with wind
-    PV_sum_prod_hourly_curtail = PV_sum_prod_hourly .* Curtail_ratio_topped;
-    
+% PV is curtailed in ratio of excess energy in balance with wind
+PV_sum_prod_hourly_curtail = PV_sum_prod_hourly .* Curtail_ratio_topped;
 
-    if 1 == 2 % plot om te controleren:
-        plot(PV_sum_prod_hourly(:,2))
-        hold on
-        plot(PV_sum_prod_hourly_curtail(:,2))
-        plot(Consume_curve(:,2),'--')
-        legend('zon 2030','zon 2030 curtail','consume')
-        %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
-        xlim([2560 2760])
-        grid
-        print -dpng -r300 zon_zon_ratio_curtailed
-    end
 
-    PV_elec_price = price_electricity; % initiate
+if 1 == 2 % plot om te controleren:
+    plot(PV_sum_prod_hourly(:,2))
+    hold on
+    plot(PV_sum_prod_hourly_curtail(:,2))
+    plot(Consume_curves(:,2),'--')
+    legend('zon 2030','zon 2030 curtail','consume')
+    %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
+    xlim([2560 2760])
+    grid
+    print -dpng -r300 zon_zon_ratio_curtailed
+end
 
-    
+PV_elec_price = price_electricity; % initiate
 
 
 
-    
-    %% Curtailment of Wind
+
+
+
+%% Curtailment of Wind
 
 %     Wind is dominant:
 %     Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly;
 %     Wind_sum_prod_hourly_curtail(residual_load_curves<0) = Consume_curve(residual_load_curves<0); % limit wind to max consumption power of country when wind can supply more than country
-%     Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<Consume_curve) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during 
+%     Wind_sum_prod_hourly_curtail(Wind_sum_prod_hourly<Consume_curve) = Wind_sum_prod_hourly(Wind_sum_prod_hourly<Consume_curve); % limit wind to what is available from wind during
 
-    % Wind is curtailed in ratio to excess renewables
-    Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly .* Curtail_ratio_topped;
+% Wind is curtailed in ratio to excess renewables
+Wind_sum_prod_hourly_curtail = Wind_sum_prod_hourly .* Curtail_ratio_topped;
+
+
+if 1 == 2
+    plot(PV_sum_prod_hourly(:,2))
+    hold on
+    plot(PV_sum_prod_hourly_curtail(:,2))
+    plot(Consume_curves(:,2),'--')
+    legend('zon 2030','zon 2030 curtail','consume')
+    %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
+    xlim([2560 2760])
+    plot(Wind_sum_prod_hourly(:,2))
+    plot(Wind_sum_prod_hourly_curtail(:,2),'--')
+    plot(Wind_sum_prod_hourly_curtail(:,2)+PV_sum_prod_hourly_curtail(:,2),'.-')
+    legend('zon 2030','zon 2030 curtail','consume','wind 2030','wind 2030 curtail','zon+wind curtail')
+    grid
+    print -dpng -r300 Zon_Wind_ratio_curtailed
+end
+
+Wind_elec_price = price_electricity; % initiate
+
+
+%% PV and Wind electricity prices
+
+PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0; % set price to zero when PV does not produce, is maybe not necessary since PV production volume is still zero at these instances, thus when multiplying this does not add up, but still handy if non-weighted avg elec price is wanted
+PV_revenue_hourly = PV_elec_price .* PV_sum_prod_hourly_curtail; % [€/MWh * MWh] = [€] for every hour
+PV_revenue_curt = sum(PV_revenue_hourly); % [€ per year for whole installed base]
+PV_avg_revenue_per_MWp = PV_revenue_curt ./ P_zon_installed_array  % P_zon_installed_array
+PV_prod_all_annual_volume = sum(PV_sum_prod_hourly); % [MWh]
+PV_prod_curt_annual_volume = sum(PV_sum_prod_hourly_curtail); % [MWh]
+PV_energy_curtailed_part = (PV_prod_all_annual_volume - PV_prod_curt_annual_volume) ./ PV_prod_all_annual_volume % [ratio]
+PV_full_load_factor_avail = PV_prod_all_annual_volume ./ (P_zon_installed_array*365*24) % [hours/year]
+PV_full_load_factor_curt = PV_prod_curt_annual_volume ./ (P_zon_installed_array*365*24) % [hours/year]
+PV_avg_elec_price_avail = PV_revenue_curt ./ PV_prod_all_annual_volume % [€/MWh]
+PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
+
+
+
+
+
+%%
+if 1 == 2  % plot PV price over year 2022
+    plot(time_array,PV_elec_price(:,1))
+    ylabel('price [€/MWh]')
+    ylim([0 150])
+    yyaxis right
+    plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
+    ylabel('PV power generated [GW]')
+    legend('price PV 2022','power PV 2022')
+    %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
+    ylim([0 30])
+    grid
+    xlim([time_array(2401) time_array(2545)]) % 11 apri tot 17 april - of: 2 mei t/m 8 mei
+    title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(1), PV_avg_elec_price_avail(1)) )
+    print -dpng -r300 PV_price_2022_week_in_April_title
+end
+
+if 1 == 2  % plot PV price over year 2030
+    plot(time_array,PV_elec_price(:,1))
+    ylabel('price [€/MWh]')
+    yyaxis right
+    plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
+    ylabel('PV power generated [GW]')
+    legend('price PV 2022','power PV 2022')
+    %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
+    ylim([0 40])
+    grid
+
+end
+
+if 1 == 2 % PV dynamic curtailment per year
+    h = figure;
+    plot(time_array,PV_sum_prod_hourly_curtail(:,2)./1000)
+    hold on
+    plot(time_array,PV_sum_prod_hourly(:,2)./1000,'--')
+    ylabel('PV Production [GW]')
+    grid
+    legend('PV 2030 with dynamic curtailment based on residual load NL','PV 2030 no dynamic curtailment (but with 10-15-20% DC/AC oversizing)')
+    xlim([time_array(2401) time_array(2545)])
+
+    title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(2), PV_avg_elec_price_avail(2)) )
+    %         yyaxis right
+    %         plot(time_array,PV_elec_price(:,2))
+    %         ylim([0 250])
+    % save_fig(h,'PV curtailment 2030 week in April');
+    print -dpng -r300 PV_curtailment_2030_week_in_April
+end
+
+Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
+Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
+Wind_revenue_curt = sum(Wind_revenue_hourly); % [€ per year for whole installed base]
+Wind_avg_revenue_per_MW = Wind_revenue_curt ./ P_wind_installed_array' % [€/MW]
+Wind_prod_all_annual_volume = sum(Wind_sum_prod_hourly); % [MWh]
+Wind_prod_curt_annual_volume = sum(Wind_sum_prod_hourly_curtail); % [MWh]
+Wind_energy_curtailed_part = (Wind_prod_all_annual_volume - Wind_prod_curt_annual_volume) ./ Wind_prod_all_annual_volume % [ratio]
+Wind_full_load_factor_avail = Wind_prod_all_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
+Wind_full_load_factor_curt = Wind_prod_curt_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
+Wind_avg_elec_price_avail = Wind_revenue_curt ./ Wind_prod_all_annual_volume % [€/MWh]
+Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [€/MWh]
+
+
+
+%% Statistics
+% Production volumes
+Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
+Cons_annual = sum(Consume_curves)/1000 % [GWh electricity]
+Wind_annual = sum(Wind_sum_prod_hourly)/1000
+Wind_annual_curtail = sum(Wind_sum_prod_hourly_curtail)/1000
+Solar_annual = sum(PV_sum_prod_hourly) / 1000
+Solar_annual_curtail = sum(PV_sum_prod_hourly_curtail) / 1000
+Prod_wind_perc = Wind_annual_curtail / Prod_annual
+Prod_solar_perc = Solar_annual_curtail / Prod_annual
+
+% Electricity Prices
+Price_avg       =   mean(price_electricity)
+Price_max       =   max(price_electricity)
+Price_min       =   min(price_electricity)
+Price_sigma     =   std(price_electricity)
+
+Price_zero_hours_moments = price_electricity~=0; % puts a zero when value was zero, else puts a one.
+Price_zero_hours_moments = Price_zero_hours_moments - 1; % convert ones to zero, and zeros to minus 1.
+Price_zero_hours_moments = Price_zero_hours_moments .* -1; % converts minus 1 to +1
+Price_zero_hours = sum(Price_zero_hours_moments) % sums all hours that have zero electricity price per year
+
+%Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
+%Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
+
+elec_price_pos_location = price_electricity>0;
+Price_only_pos_avg  =  mean(price_electricity.*elec_price_pos_location); %
+
+% deze werkt niet want conditional indexing met matrix A(A>0) output in series array, niet in matrix. Daarom als oplossing: vermenigvuldig met conditional indexing, dan blijft het in matrix format A.*(A>0)
+% Price_only_pos_avg(1)  =  mean(price_electricity(price_electricity(:,1)>0,1));
+% Price_only_pos_avg(2)  =  mean(price_electricity(price_electricity(:,2)>0,2)) % this shows the price during fossil production hours - non volume weighted
+
+
+
+
+%% 2022 PV - %% Scatter plot to gain insight in PV time-price-production
+if 1 == 2
+    sl = 1;
+    h2020 = figure();
+    sz = PV_elec_price(:,sl);
+    sz(sz==0) = 1; % set zeros to one since zeros are not accepted by scatter function
+    %sz = PV_revenue_hourly(:,sl) ./ 1e4 ; % [€/hour]
+    %sz(c==0) = 1;
+    c = PV_revenue_hourly(:,sl)/P_zon_installed_array(sl); % [€/hour/MWp installed]
+    c(c==0) = 1;
+    scatter(time_array,PV_sum_prod_hourly(:,sl)/1000,c,sz)
+    a = colorbar;
+    ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
+    %ylim(a,[0 120])
+    %a.Label.String = 'Power (dB)';
+    a.Label.Position(1) = 3.2;
+    grid
+    ylabel('Power produced [GW]')
+    legend('2022 14.8 GWp PV, circle size = produced revenue')
+    ylim([0 16])
+    jaar = 1;
+    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+
+    print -dpng -r300 Zon_scatterplot_2022_v4
+end
+
+%% 2030 Wind - %% Scatter plot to gain insight in PV time-price-production
+if 1==2
+    sl = 2;
+    h2030 = figure();
+    sz = PV_elec_price(:,sl);
+    sz(sz==0) = 1; % set zeros to one since zeros are not accepted by scatter function
+    %sz = PV_revenue_hourly(:,sl) ./ 1e4 ; % [€/hour]
+    %sz(c==0) = 1;
+    c = PV_revenue_hourly(:,sl)/P_zon_installed_array(sl); % [€/hour/MWp installed]
+    c(c==0) = 1;
+    scatter(time_array,PV_sum_prod_hourly(:,sl)/1000,c*2,sz)
+    a = colorbar;
+    ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
+    %a.Label.String = 'Power (dB)';
+    a.Label.Position(1) = 3.2;
+    grid
+    ylabel('Power produced [GW]')
+    legend('2030 46.2 GWp PV, circle size = produced revenue')
+    ylim([0 50])
+    jaar = 2;
+    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+
+    print -dpng -r300 Zon_scatterplot_2030_v4
+end
+
+
+%% 2022 Wind - %% Scatter plot to gain insight in Wind time-price-production
+if 1 == 2
+    sl = 1;
+    h2022_wind = figure();
+    sz = Wind_elec_price(:,sl);
+    sz(sz==0) = 1; % set zeros to one since zeros are not accepted by scatter function
+    %sz = PV_revenue_hourly(:,sl) ./ 1e4 ; % [€/hour]
+    %sz(c==0) = 1;
+    c = Wind_revenue_hourly(:,sl)/P_wind_installed_array(sl); % [€/hour/MWp installed]
+    c(c==0) = 1;
+    scatter(time_array,Wind_sum_prod_hourly(:,sl)/1000,c,sz)
+    a = colorbar;
+    ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
+    %ylim(a,[0 120])
+    %a.Label.String = 'Power (dB)';
+    a.Label.Position(1) = 3.2;
+    grid
+    ylabel('Power produced [GW]')
+    legend('2022 Wind, circle size = produced revenue')
+    ylim([0 14])
+    jaar = 1;
+    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+
+    print -dpng -r300 Wind_scatterplot_2022_v2
+end
+
+%% 2030 Wind - %% Scatter plot to gain insight in Wind time-price-production
+if 1 == 2
+    sl = 2;
+    h2030_wind = figure();
+    sz = Wind_elec_price(:,sl);
+    sz(sz==0) = 1; % set zeros to one since zeros are not accepted by scatter function
+    %sz = PV_revenue_hourly(:,sl) ./ 1e4 ; % [€/hour]
+    %sz(c==0) = 1;
+    c = Wind_revenue_hourly(:,sl)/P_wind_installed_array(sl); % [€/hour/MWp installed]
+    c(c==0) = 1;
+    scatter(time_array,Wind_sum_prod_hourly(:,sl)/1000,c*2,sz)
+    a = colorbar;
+    ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
+    %a.Label.String = 'Power (dB)';
+    a.Label.Position(1) = 3.2;
+    grid
+    ylabel('Power produced [GW]')
+    legend('2030 Wind, circle size = produced revenue')
+    ylim([0 1.1*max(Wind_sum_prod_hourly(:,sl)/1000)])
+    jaar = 2;
+    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+
+    print -dpng -r300 Wind_scatterplot_2030_v2
+end
+
+
+
+
+%% Analyze volume depth of zero electricity hours
+if 1 == 1
+    h_depth = figure();
     
-
-    if 1 == 2
-        plot(PV_sum_prod_hourly(:,2))
-        hold on
-        plot(PV_sum_prod_hourly_curtail(:,2))
-        plot(Consume_curve(:,2),'--')
-        legend('zon 2030','zon 2030 curtail','consume')
-        %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
-        xlim([2560 2760])
-        plot(Wind_sum_prod_hourly(:,2))
-        plot(Wind_sum_prod_hourly_curtail(:,2),'--')
-        plot(Wind_sum_prod_hourly_curtail(:,2)+PV_sum_prod_hourly_curtail(:,2),'.-')
-        legend('zon 2030','zon 2030 curtail','consume','wind 2030','wind 2030 curtail','zon+wind curtail')
-        grid
-        print -dpng -r300 Zon_Wind_ratio_curtailed
-    end
-
-    Wind_elec_price = price_electricity; % initiate
-
-
-    %% PV and Wind electricity prices
-
-    PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0; % set price to zero when PV does not produce, is maybe not necessary since PV production volume is still zero at these instances, thus when multiplying this does not add up, but still handy if non-weighted avg elec price is wanted
-    PV_revenue_hourly = PV_elec_price .* PV_sum_prod_hourly_curtail; % [€/MWh * MWh] = [€] for every hour
-    PV_revenue_curt = sum(PV_revenue_hourly); % [€ per year for whole installed base]
-    PV_avg_revenue_per_MWp = PV_revenue_curt ./ P_zon_installed_array'  % P_zon_installed_array
-    PV_prod_all_annual_volume = sum(PV_sum_prod_hourly); % [MWh]
-    PV_prod_curt_annual_volume = sum(PV_sum_prod_hourly_curtail); % [MWh]
-    PV_energy_curtailed_part = (PV_prod_all_annual_volume - PV_prod_curt_annual_volume) ./ PV_prod_all_annual_volume % [ratio]
-    PV_full_load_factor_avail = PV_prod_all_annual_volume ./ (P_zon_installed_array'*365*24) % [hours/year]
-    PV_full_load_factor_curt = PV_prod_curt_annual_volume ./ (P_zon_installed_array'*365*24) % [hours/year]
-    PV_avg_elec_price_avail = PV_revenue_curt ./ PV_prod_all_annual_volume % [€/MWh]
-    PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
-
-
-    if 1 == 2  % plot PV price over year 2022
-        plot(time_array,PV_elec_price(:,1))
-        ylabel('price [€/MWh]')
-        ylim([0 150])
-        yyaxis right
-        plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
-        ylabel('PV power generated [GW]')
-        legend('price PV 2022','power PV 2022')
-        %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
-        ylim([0 30])
-        grid
-        xlim([time_array(2401) time_array(2545)]) % 11 apri tot 17 april - of: 2 mei t/m 8 mei
-        title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(1), PV_avg_elec_price_avail(1)) )
-        print -dpng -r300 PV_price_2022_week_in_April_title
-    end
-
-       if 1 == 2  % plot PV price over year 2030
-        plot(time_array,PV_elec_price(:,1))
-        ylabel('price [€/MWh]')
-        yyaxis right
-        plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
-        ylabel('PV power generated [GW]')
-        legend('price PV 2022','power PV 2022')
-        %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
-        ylim([0 40])
-        grid
-        
-    end
-
-    if 1 == 2 % PV dynamic curtailment per year
-        h = figure;
-        plot(time_array,PV_sum_prod_hourly_curtail(:,2)./1000)
-        hold on
-        plot(time_array,PV_sum_prod_hourly(:,2)./1000,'--')
-        ylabel('PV Production [GW]')
-        grid
-        legend('PV 2030 with dynamic curtailment based on residual load NL','PV 2030 no dynamic curtailment (but with 10-15-20% DC/AC oversizing)')
-        xlim([time_array(2401) time_array(2545)])
-        
-        title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(2), PV_avg_elec_price_avail(2)) )
-%         yyaxis right
-%         plot(time_array,PV_elec_price(:,2))
-%         ylim([0 250])
-        % save_fig(h,'PV curtailment 2030 week in April');
-        print -dpng -r300 PV_curtailment_2030_week_in_April
-    end
-
-    Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
-    Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
-    Wind_revenue_curt = sum(Wind_revenue_hourly); % [€ per year for whole installed base]
-    Wind_avg_revenue_per_MW = Wind_revenue_curt ./ P_wind_installed_array' % [€/MW]
-    Wind_prod_all_annual_volume = sum(Wind_sum_prod_hourly); % [MWh]
-    Wind_prod_curt_annual_volume = sum(Wind_sum_prod_hourly_curtail); % [MWh]
-    Wind_energy_curtailed_part = (Wind_prod_all_annual_volume - Wind_prod_curt_annual_volume) ./ Wind_prod_all_annual_volume % [ratio]
-    Wind_full_load_factor_avail = Wind_prod_all_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
-    Wind_full_load_factor_curt = Wind_prod_curt_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
-    Wind_avg_elec_price_avail = Wind_revenue_curt ./ Wind_prod_all_annual_volume % [€/MWh]
-    Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [€/MWh]
-
-
-
-    %% Statistics
-    % Production volumes
-    Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
-    Cons_annual = sum(Consume_curve)/1000 % [GWh electricity]
-    Wind_annual = sum(Wind_sum_prod_hourly)/1000
-    Wind_annual_curtail = sum(Wind_sum_prod_hourly_curtail)/1000
-    Solar_annual = sum(PV_sum_prod_hourly) / 1000
-    Solar_annual_curtail = sum(PV_sum_prod_hourly_curtail) / 1000
-    Prod_wind_perc = Wind_annual_curtail / Prod_annual
-    Prod_solar_perc = Solar_annual_curtail / Prod_annual
-
-    % Electricity Prices
-    Price_avg       =   mean(price_electricity)
-    Price_max       =   max(price_electricity)
-    Price_min       =   min(price_electricity)
-    Price_sigma     =   std(price_electricity)
-
-    Price_zero_hours_moments = price_electricity~=0; % puts a zero when value was zero, else puts a one.
-    Price_zero_hours_moments = Price_zero_hours_moments - 1; % convert ones to zero, and zeros to minus 1.
-    Price_zero_hours_moments = Price_zero_hours_moments .* -1; % converts minus 1 to +1
-    Price_zero_hours = sum(Price_zero_hours_moments) % sums all hours that have zero electricity price per year
     
-    %Price_zero_hours =  length(find(price_electricity==0)) % does not work for array values
-    %Price_subzero_hours =  length(find(price_electricity_raw<0)) % does not work for array values
     
-    elec_price_pos_location = price_electricity>0;
-    Price_only_pos_avg  =  mean(price_electricity.*elec_price_pos_location); %  
+    sl = 1;
+    rx1 = nexttile;
+    %subplot(2,1, 1)
+    plot(time_array,residual_load_curves(:,sl)./1000)
+    legend('2022')
+    grid
+    xlabel('Time')
+    ylabel('Residual load [GW]')
+    
+    sl = 2;
+    rx2 = nexttile;
+    %subplot(2,1, 2)
+    plot(time_array,residual_load_curves(:,sl)./1000)
+    legend('2030')
+    grid
+    xlabel('Time')
+    ylabel('Residual load [GW]')
 
-    % deze werkt niet want conditional indexing met matrix A(A>0) output in series array, niet in matrix. Daarom als oplossing: vermenigvuldig met conditional indexing, dan blijft het in matrix format A.*(A>0)
-    % Price_only_pos_avg(1)  =  mean(price_electricity(price_electricity(:,1)>0,1));
-    % Price_only_pos_avg(2)  =  mean(price_electricity(price_electricity(:,2)>0,2)) % this shows the price during fossil production hours - non volume weighted
+
+
+    linkaxes([rx1 rx2],'x')
+
+    rx1.XLim = [time_array(3000), time_array(3000+7*24)];
+end
+
+
+
+%% 
+
+ Residual_excess = residual_load_curves;
+ Residual_excess(Residual_excess>=0) = NaN; % delete all values that are zero or higher thus fossil required
+ Residual_excess_cumsum = cumsum(Residual_excess);
+ rs1 = nexttile;
+ r2 = histogram(Residual_excess(:,2)./1000,'BinWidth',0.5);
+ hold on
+ r1 = histogram(Residual_excess(:,1)./1000,'BinWidth',0.5);
+  xlabel('Residual load [GW]')
+ ylabel('Occurances [hours/year]')
+ legend('2030','2022','Location','Northwest')
+ title('Histogram of excess available renewable electricity')
+ grid
+ 
+ rs2 = nexttile;
+ 
+ area(r2.BinEdges(1:length(r2.BinEdges)-1),cumsum(r2.Values))
+ hold on
+ area(r1.BinEdges(1:length(r1.BinEdges)-1),cumsum(r1.Values))
+ 
+ xlabel('Residual load [GW]')
+ ylabel('Available [hours/year]')
+ grid
+ legend('2030 CDF','2022 CDF','Location','Northwest')
+ jaar = 2;
+ title(sprintf('Year: %.0f: Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000) )
+
+
+ linkaxes([rs1 rs2],'x')
+ xlim([min(Residual_excess(:,2)./1000) 0])
+
+ print -dpng -r300 Excess_energy_depth_v2
+
+    %%
+h2 = histogram(residual_load_curves(:,2)./1000,'BinWidth',0.5);
+hold on
+h1 = histogram(residual_load_curves(:,1)./1000,'BinWidth',0.5);
+
+
+grid
+xlabel('Residual load [GW]')
+ylabel('Occurances [hours/year]')
+
+xlim([-40 0])
+
+yyaxis right
+ylabel('Annual coverage [%]')
+h3 = cdfplot(residual_load_curves(:,2)./1000);
 
 
 
 
+%% initiliaze plot
+h0 = figure('Name','Electricity market NL 2030','pos',[0 0 2000 1200]); % width and height start and end points
+tiledlayout(4,2)
 
-    %% Calculate Storage methods
-    Storage_unlim = zeros(length(time_array),1);
-    P_V2G_discharge = Storage_unlim;
-    P_V2G_charge = Storage_unlim;
-    Storage_V2G = Storage_unlim;
+
+
+
+%% Calculate Storage methods
+Storage_unlim = zeros(length(time_array),1);
+P_V2G_discharge = Storage_unlim;
+P_V2G_charge = Storage_unlim;
+Storage_V2G = Storage_unlim;
 
 for jaar = 1:2
 
@@ -412,9 +610,9 @@ for jaar = 1:2
     if residual_load_curve(1) < 0
         Storage_unlim(1) = -residual_load_curve(1);
     end
-% try-out: make it array compatible
-%     Storage_unlim = -residual_load_curve(1,:);
-%     Storage_unlim(Storage_unlim<0) = 0;
+    % try-out: make it array compatible
+    %     Storage_unlim = -residual_load_curve(1,:);
+    %     Storage_unlim(Storage_unlim<0) = 0;
 
     % for loop over other points - by adding on top of previous point - it resets to zero when more days are zero and starts over again.
     for a = 2:(length(time_array)-1)
@@ -423,19 +621,17 @@ for jaar = 1:2
         end
     end
 
-    Residual_excess = -residual_load_curve;
-    Residual_excess(Residual_excess<0) = 0;
-    Residual_excess_cumsum = cumsum(Residual_excess);
+   
 
     OBC_power = 11e-3; % [MW] bidirecitonal power transfer capability per EV
     n_vehicles = 2.2e6; % [2030]
-    share_participate_V2G = 0.4; %[-] 
+    share_participate_V2G = 0.4; %[-]
     n_vehicles_V2G = n_vehicles * share_participate_V2G; % number of vehicles participating in V2G
     share_connected_to_charge_pole = 0.2; % 1 out of 5 is connected to charge pole on avg
     max_charge_power_all_connected = n_vehicles_V2G * OBC_power; % [MW]
     n_vehicles_V2G_connected = n_vehicles_V2G * share_connected_to_charge_pole; % amount of vehicles that are connected to charging pole AND are willing to do V2G
     max_charge_power_inst = n_vehicles_V2G * OBC_power * share_connected_to_charge_pole; % [MW]
-    
+
     E_vehicle = 65e-3; %[MWh] storage per vehicle = 65kWh
     E_vehicle_V2G_part = 0.5; %[-] 50% of SoC is set to be available for V2G
     E_vehicle_V2G_fleet = n_vehicles_V2G * E_vehicle * E_vehicle_V2G_part; % [MWh] all V2G vehicles determine max total energy charged - but power is limited by V2G share AND charge pole share
@@ -480,7 +676,7 @@ for jaar = 1:2
 
 
     %% Plot A - generation
-    ax1 = nexttile;
+    rx1 = nexttile;
 
     % V2G discharge
     area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
@@ -504,7 +700,7 @@ for jaar = 1:2
 
 
 
-   
+
     % Fossil residual
     area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar) - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F
 
@@ -525,8 +721,8 @@ for jaar = 1:2
     % ik wil graag overshot ook laten zien met stippelijn erboven over, of negatief?
     % negatief: opladen van batterij
 
-    plot(time_array, Consume_curve(:,jaar)/1000,'k')
-    plot(time_array, (Consume_curve(:,jaar) + P_V2G_charge)/1000,'--r')
+    plot(time_array, Consume_curves(:,jaar)/1000,'k')
+    plot(time_array, (Consume_curves(:,jaar) + P_V2G_charge)/1000,'--r')
 
     legend('V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
@@ -539,19 +735,22 @@ for jaar = 1:2
     %% Plot B - Limited Storage only excess energy stored and fed back
     ax2 = nexttile;
 
-    %Histogram of storage size
-    %         figure
-    %         h1 = histogram(Storage/1e3);
-    %         h1.BinWidth = 5;
-    %         xlim([0 600])
-    %         ylabel('Hours per year')
-    %         hold on
-    %         yyaxis right
-    %         ylabel('Annual coverage [%]')
-    %         h2 = cdfplot(Storage/1e3);
-    %         xlabel('GWh storage capacity')
-    %         ylim([0 1.0])
-    %         legend('Histogram','Cumulative distribution function')
+    if 1 == 2 
+    % Histogram of storage size
+            figure
+            h1 = histogram(Storage/1e3);
+            h1.BinWidth = 5;
+            xlim([0 600])
+            ylabel('Hours per year')
+            hold on
+            yyaxis right
+            ylabel('Annual coverage [%]')
+            h2 = cdfplot(Storage/1e3);
+            xlabel('GWh storage capacity')
+            ylim([0 1.0])
+            legend('Histogram','Cumulative distribution function')
+    end
+
 
     plot(time_array,Storage_unlim/1000)
     hold on
@@ -592,16 +791,16 @@ for jaar = 1:2
 
     ylim([0 250])
 
-%     plot(time_array,P_V2G_charge/1000)
-%     hold on
-%     plot(time_array,P_V2G_discharge/1000)
-%     legend('Charge','Discharge')
-%     xlabel('Time')
-%     ylabel('V2G charge/discharge power GW')
-%     grid
-%     xlim([time_array(start_point), time_array(start_point+days*24)])
-%     title('V2G charging and discharging')
-%     %ylim([0 150])
+    %     plot(time_array,P_V2G_charge/1000)
+    %     hold on
+    %     plot(time_array,P_V2G_discharge/1000)
+    %     legend('Charge','Discharge')
+    %     xlabel('Time')
+    %     ylabel('V2G charge/discharge power GW')
+    %     grid
+    %     xlim([time_array(start_point), time_array(start_point+days*24)])
+    %     title('V2G charging and discharging')
+    %     %ylim([0 150])
 
     %     %
     %     % Electricity Prices
@@ -629,13 +828,13 @@ for jaar = 1:2
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
     title(sprintf('Electricity prices - PV dyn curtailed: %.1f perc, PV avg worth: %.1f €/MWh, Wind dyn curtialed: %.1f perc, Wind avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(jaar), PV_avg_elec_price_avail(jaar), 100.*Wind_energy_curtailed_part(jaar), Wind_avg_elec_price_avail(jaar) ) )
-    
-    
-    
 
 
-linkaxes([ax1 ax2 ax3],'x')
-ax1.XLim = [time_array(start_point), time_array(start_point+days*24)];
+
+
+
+    linkaxes([rx1 ax2 ax3],'x')
+    rx1.XLim = [time_array(start_point), time_array(start_point+days*24)];
 
 end
 
