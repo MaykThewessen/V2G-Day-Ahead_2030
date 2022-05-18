@@ -48,7 +48,9 @@ jaren = [2022; 2030];
 % import 'NL Power usage (Load)' as an CSV file:
 merit_order_ETM_rawimport = readtable('merit_order.911586.csv'); % ETM model - column 2 till 76 is .output - column 77 to 182 is .input powers - all in MW
 % converter to matrix for datetime and matrix for doubles
-time_array = merit_order_ETM_rawimport{:,1};
+time_array_orig = merit_order_ETM_rawimport{:,1};
+time_array = time_array_orig + 365*2 +1;
+time_array(:,2) = time_array_orig + 365*10+3;
 merit_order_ETM_data = merit_order_ETM_rawimport{:,2:end};
 % split producer from consumer:
 m_o_producer = merit_order_ETM_rawimport(:,2:75);
@@ -82,27 +84,34 @@ Produce_curve = sum(m_o_producer{:,2:end},2); % [MW] data per hour
 %% Construct consume curve
 Consume_curve_orig = sum(m_o_consumer{:,2:end},2);
 
-Cons_annual_source_TWh = sum(Consume_curve_orig)/1e6;
+Cons_annual_source_TWh = sum(Consume_curve_orig)/1e6; % ETM source for 2019 is: 124.4 TWh/year which is a lot actually.
 
-Consume_curves = cat(2,Consume_curve_orig);
+E_Load_curves = cat(2,Consume_curve_orig);
 
 Cons_CBS_2019 = 113.4; % [TWh] consumption in NL according to CBS - pre corona source: https://www.cbs.nl/nl-nl/nieuws/2021/09/elektriciteitsproductie-stijgt-in-2020-naar-recordhoogte
+Load_CBS_2019 = 118.7; % [TWH] load = consumption + distribution losses, source: https://opendata.cbs.nl/statline/#/CBS/nl/dataset/84575NED/table?ts=1652358103456
 Prod_CBS_2019 = 117.6; % [TWh] production of electricity in NL according to CBS
 
 Energy_cons_increase_per_year = 0.03;
 
-Cons_expected_demand = [Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2022-2019)), Cons_CBS_2019*(1+Energy_cons_increase_per_year*(2030-2019))] %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
-Cons_scale = Cons_expected_demand / Cons_annual_source_TWh
+Load_expected_demand = [Load_CBS_2019*(1+Energy_cons_increase_per_year*(2022-2019)), Load_CBS_2019*(1+Energy_cons_increase_per_year*(2030-2019))] %[TWh/year divided by TWh/year] source: https://open-pilot.overheid.nl/repository/ronl-f997136c-6917-4bbd-a2f0-5933f3067f67/1/pdf/bijlage-eindrapport-v2g-waarde-en-weg-voorwaarts.pdf
+Load_scale = Load_expected_demand / Cons_annual_source_TWh
 
-Consume_curves  = Consume_curves .* Cons_scale;
+E_Load_curves  = E_Load_curves .* Load_scale;
+
+Load_jaren = [2019, 2022, 2030]
+Load_power_GW_min = [min(Consume_curve_orig)/1000 min(E_Load_curves)/1000] % [GW]
+Load_power_GW_mean = [mean(Consume_curve_orig)/1000 mean(E_Load_curves)/1000] % [GW] average hourly load in the three years.
+Load_power_GW_max = [max(Consume_curve_orig)/1000 max(E_Load_curves)/1000] % [GW]
+
 
 if 1 == 2 % histogram van Consumption power NL in 2030 - tussen 12 en 26 GW
-    histogram(Consume_curves(:,1)./1000)
+    histogram(E_Load_curves(:,1)./1000)
     hold on
-    histogram(Consume_curves(:,2)./1000)
+    histogram(E_Load_curves(:,2)./1000)
     xlabel('Consumption power in [GW]')
     ylabel('Hourly occurances per year')
-    legend(sprintf('Year: 2022, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curves(:,1))/1e6, mean(Consume_curves(:,1)/1000)),sprintf('Year: 2030, Consumption: %.1f TWh, Avg power %.1f GW',sum(Consume_curves(:,2))/1e6, mean(Consume_curves(:,2)/1000)) )
+    legend(sprintf('Year: 2022, Consumption: %.1f TWh, Avg power %.1f GW',sum(E_Load_curves(:,1))/1e6, mean(E_Load_curves(:,1)/1000)),sprintf('Year: 2030, Consumption: %.1f TWh, Avg power %.1f GW',sum(E_Load_curves(:,2))/1e6, mean(E_Load_curves(:,2)/1000)) )
     grid
     title('Histogram of hourly consumption')
     print -dpng -r300 Histogram_consume_2022_2030
@@ -119,11 +128,15 @@ production_parameters.installed_power = production_parameters{:,"number_of_units
 
 % Sum up the renewable contributors
 P_solar_installed_bron = sum( production_parameters{[14,82,103],"installed_power"} ); % this is shit, row number changes with export ETM, hopefully will not change again, otherwise have to revise script to find based on text string, not on row number
+% 17 mei: 11.11 GW PV total van ETM bron
+
 % pv households = 120
 % pv buildings = 14
 % pv solar parks = 95
 
 P_wind_installed_bron = sum( production_parameters{95:97,"installed_power"} );
+% 17 mei: 7.76 GW wind total
+
 % wind onshore 111
 % wind coastal 110
 % wind offshore 112
@@ -134,14 +147,14 @@ P_zon_2022_April = 14800; %[MW]
 P_zon_prognose_2030 = 46200; % [MW] hoog scenario - pv cost down
 P_zon_installed_array = [P_zon_2022_April, P_zon_prognose_2030];
 zon_scale = P_zon_installed_array / P_solar_installed_bron
+% 17 mei: 11.11 GW PV total van ETM bron
 
-
-P_wind_2022_April = 5300 + 2460; %[MW] 7.76 GW currently offshore + onshore - ratio = 68% wind = offshore
+P_wind_2022_April = 5300 + 2460; %[MW] 7.76 GW currently onshore + offshore, ratio = 68% wind = onshore (dit zorgt voor kleine fout in modellering, sinds er vanuit ETM bron nu meer offshore dan onshore staat ingesteld)
 %P_wind_prognose_2030 = 8800 + 21300; % [MW] hoog scenario 8.8GW onshore + 21.3GW offshore reeds aangekodigd door overheid, plannen die dit bewerkstelligen, maar dit kan niet allemaal nuttig ingevoed worden zonder extra verbruik, dus verwacht: extra H2 electrolysers of extra elec industry
 P_wind_prognose_2030 = 8800 + 16700; % [MW] laag scenario 8.8GW onshore + 16.7GW offshore
 P_wind_installed_array = [P_wind_2022_April, P_wind_prognose_2030];
 wind_scale = P_wind_installed_array / P_wind_installed_bron
-
+% 17 mei: 7.76 GW wind total van ETM bron
 
 
 
@@ -166,7 +179,7 @@ PV_sum_prod_hourly = zon_scale .* PV_sum_prod_hourly_bron;
 Wind_sum_prod_hourly = wind_scale .* Wind_sum_prod_hourly_bron;
 
 renewable_producers = PV_sum_prod_hourly + Wind_sum_prod_hourly;
-residual_load_curves = Consume_curves - renewable_producers; % [MW] Pure residual load - negative means excess renewable energy produced/available
+residual_load_curves = E_Load_curves - renewable_producers; % [MW] Pure residual load - negative means excess renewable energy produced/available
 
 residual_fossil_production = residual_load_curves;
 residual_fossil_production(residual_fossil_production<0) = 0; % [MW] only save positive residual load power hours to only save when fossil is contributing
@@ -194,7 +207,7 @@ price_electricity(residual_fossil_production==0) = 0; % set price to 0 for momen
 
 %% Curtailment split between PV and Wind, new: split to ratio of PV/Wind excess energy - OR: to ratio of PV/Wind in ratio to demand.
 
-Curtail_ratio = Consume_curves ./ renewable_producers .* (residual_load_curves<=0); % if residual load is negative, then calculate curtail ratio
+Curtail_ratio = E_Load_curves ./ renewable_producers .* (residual_load_curves<=0); % if residual load is negative, then calculate curtail ratio
 Curtail_ratio(isnan(Curtail_ratio))=0; % a bug occurs when 0 renewable is produced with dividing by zero, therefore this solves it.
 Curtail_ratio_topped = Curtail_ratio;
 Curtail_ratio_topped = Curtail_ratio_topped + 1 .* (Curtail_ratio==0);
@@ -223,7 +236,7 @@ if 1 == 2 % plot om te controleren:
     plot(PV_sum_prod_hourly(:,2))
     hold on
     plot(PV_sum_prod_hourly_curtail(:,2))
-    plot(Consume_curves(:,2),'--')
+    plot(E_Load_curves(:,2),'--')
     legend('zon 2030','zon 2030 curtail','consume')
     %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
     xlim([2560 2760])
@@ -253,7 +266,7 @@ if 1 == 2
     plot(PV_sum_prod_hourly(:,2))
     hold on
     plot(PV_sum_prod_hourly_curtail(:,2))
-    plot(Consume_curves(:,2),'--')
+    plot(E_Load_curves(:,2),'--')
     legend('zon 2030','zon 2030 curtail','consume')
     %legend('zon 2022','zon 2030','zon 2022 curtail','zon 2030 curtail','consume','consume')
     xlim([2560 2760])
@@ -292,7 +305,7 @@ if 1 == 2  % plot PV price over year 2022
     ylabel('price [€/MWh]')
     ylim([0 150])
     yyaxis right
-    plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
+    plot(time_array(:,1),PV_sum_prod_hourly_curtail(:,1)./1000)
     ylabel('PV power generated [GW]')
     legend('price PV 2022','power PV 2022')
     %legend('price PV 2022','price PV 2030 curtailed','power PV 2022','power PV 2030')
@@ -304,7 +317,7 @@ if 1 == 2  % plot PV price over year 2022
 end
 
 if 1 == 2  % plot PV price over year 2030
-    plot(time_array,PV_elec_price(:,1))
+    plot(time_array(:,2),PV_elec_price(:,1))
     ylabel('price [€/MWh]')
     yyaxis right
     plot(time_array,PV_sum_prod_hourly_curtail(:,1)./1000)
@@ -318,13 +331,13 @@ end
 
 if 1 == 2 % PV dynamic curtailment per year
     h = figure;
-    plot(time_array,PV_sum_prod_hourly_curtail(:,2)./1000)
+    plot(time_array(:,2),PV_sum_prod_hourly_curtail(:,2)./1000)
     hold on
-    plot(time_array,PV_sum_prod_hourly(:,2)./1000,'--')
+    plot(time_array(:,2),PV_sum_prod_hourly(:,2)./1000,'--')
     ylabel('PV Production [GW]')
     grid
     legend('PV 2030 with dynamic curtailment based on residual load NL','PV 2030 no dynamic curtailment (but with 10-15-20% DC/AC oversizing)')
-    xlim([time_array(2401) time_array(2545)])
+    xlim([time_array(2401,2) time_array(2545,2)])
 
     title(sprintf('PV dyn annual volume curtailed: %.1f perc, PV avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(2), PV_avg_elec_price_avail(2)) )
     %         yyaxis right
@@ -351,7 +364,7 @@ Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [
 %% Statistics
 % Production volumes
 Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
-Cons_annual = sum(Consume_curves)/1000 % [GWh electricity]
+Cons_annual = sum(E_Load_curves)/1000 % [GWh electricity]
 Wind_annual = sum(Wind_sum_prod_hourly)/1000
 Wind_annual_curtail = sum(Wind_sum_prod_hourly_curtail)/1000
 Solar_annual = sum(PV_sum_prod_hourly) / 1000
@@ -393,7 +406,7 @@ if 1 == 2
     %sz(c==0) = 1;
     c = PV_revenue_hourly(:,sl)/P_zon_installed_array(sl); % [€/hour/MWp installed]
     c(c==0) = 1;
-    scatter(time_array,PV_sum_prod_hourly(:,sl)/1000,c,sz)
+    scatter(time_array(:,1),PV_sum_prod_hourly(:,sl)/1000,c,sz)
     a = colorbar;
     ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
     %ylim(a,[0 120])
@@ -404,13 +417,13 @@ if 1 == 2
     legend('2022 14.8 GWp PV, circle size = produced revenue')
     ylim([0 16])
     jaar = 1;
-    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
-
+    title(sprintf('Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+    xlim([time_array(1,1) time_array(end-24,1)])
     print -dpng -r300 Zon_scatterplot_2022_v4
 end
 
-%% 2030 Wind - %% Scatter plot to gain insight in PV time-price-production
-if 1==2
+%% 2030 PV - %% Scatter plot to gain insight in PV time-price-production
+if 1 == 1
     sl = 2;
     h2030 = figure();
     sz = PV_elec_price(:,sl);
@@ -419,21 +432,44 @@ if 1==2
     %sz(c==0) = 1;
     c = PV_revenue_hourly(:,sl)/P_zon_installed_array(sl); % [€/hour/MWp installed]
     c(c==0) = 1;
-    scatter(time_array,PV_sum_prod_hourly(:,sl)/1000,c*2,sz)
+    scatter(time_array(:,2),PV_sum_prod_hourly(:,sl)/1000,c*2,sz)
     a = colorbar;
     ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
     %a.Label.String = 'Power (dB)';
     a.Label.Position(1) = 3.2;
     grid
     ylabel('Power produced [GW]')
-    legend('2030 46.2 GWp PV, circle size = produced revenue')
+    legend('circle size = produced revenue')
     ylim([0 50])
+    xlim([time_array(1,2) time_array(end-24,2)])
     jaar = 2;
-    title(sprintf('%.0f, Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
-
+    title(sprintf('Demand: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0fprct, PV gen: %.0fprct', Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+    save_fig(h2030,'Zon_scatterplot_2030_v4');
     print -dpng -r300 Zon_scatterplot_2030_v4
 end
 
+
+%% 2030 PV GWp vs Price
+if 1 == 2
+    scatter(PV_sum_prod_hourly(:,2)/1000,PV_elec_price(:,2))
+    xlabel('PV production [GW]')
+    ylabel('PV electricity price [€/MWh]')
+    grid
+end
+
+
+%% 
+PV_GW_vs_price = zeros(length(time_array),1);
+% sum revenue made per GW interval
+for a = 1:length(time_array(:,2))
+    % PV_GW_vs_price(ceil(PV_sum_prod_hourly(a,2))+1) = PV_GW_vs_price(ceil(PV_sum_prod_hourly(a,2))+1) + PV_elec_price(a,2);
+% to be finished later - was nice for a twitter post - goal: analyse PV vs GW vs price with no flex in the market.
+% sum all things from figure before in vertical direction.
+end
+if 1 == 1
+    
+    
+end
 
 %% 2022 Wind - %% Scatter plot to gain insight in Wind time-price-production
 if 1 == 2
@@ -445,7 +481,7 @@ if 1 == 2
     %sz(c==0) = 1;
     c = Wind_revenue_hourly(:,sl)/P_wind_installed_array(sl); % [€/hour/MWp installed]
     c(c==0) = 1;
-    scatter(time_array,Wind_sum_prod_hourly(:,sl)/1000,c,sz)
+    scatter(time_array(:,1),Wind_sum_prod_hourly(:,sl)/1000,c,sz)
     a = colorbar;
     ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
     %ylim(a,[0 120])
@@ -471,7 +507,7 @@ if 1 == 2
     %sz(c==0) = 1;
     c = Wind_revenue_hourly(:,sl)/P_wind_installed_array(sl); % [€/hour/MWp installed]
     c(c==0) = 1;
-    scatter(time_array,Wind_sum_prod_hourly(:,sl)/1000,c*2,sz)
+    scatter(time_array(:,2),Wind_sum_prod_hourly(:,sl)/1000,c*2,sz)
     a = colorbar;
     ylabel(a,'Hourly electricity price [€/MWh]','Rotation',270);
     %a.Label.String = 'Power (dB)';
@@ -489,88 +525,71 @@ end
 
 
 
-%% Analyze volume depth of zero electricity hours
-if 1 == 1
+%% Analyze residual load curve histograms
+if 1 == 2
     h_depth = figure();
-    
-    
-    
+
     sl = 1;
     rx1 = nexttile;
     %subplot(2,1, 1)
-    plot(time_array,residual_load_curves(:,sl)./1000)
+    plot(time_array(:,1),residual_load_curves(:,sl)./1000)
     legend('2022')
     grid
     xlabel('Time')
     ylabel('Residual load [GW]')
-    
+
     sl = 2;
     rx2 = nexttile;
     %subplot(2,1, 2)
-    plot(time_array,residual_load_curves(:,sl)./1000)
+    plot(time_array(:,2),residual_load_curves(:,sl)./1000)
     legend('2030')
     grid
     xlabel('Time')
     ylabel('Residual load [GW]')
 
-
-
     linkaxes([rx1 rx2],'x')
 
-    rx1.XLim = [time_array(3000), time_array(3000+7*24)];
+    rx1.XLim = [time_array(3000,1), time_array(3000+7*24,1)];
 end
 
 
 
-%% 
+%% Analyze volume depth of zero electricity hours
+if 1 == 2
+    Residual_excess = residual_load_curves;
+    Residual_excess(Residual_excess>=0) = NaN; % delete all values that are zero or higher thus fossil required
+    Residual_excess_cumsum = cumsum(Residual_excess);
+    rs1 = nexttile;
+    r2 = histogram(Residual_excess(:,2)./1000,'BinWidth',0.5);
+    hold on
+    r1 = histogram(Residual_excess(:,1)./1000,'BinWidth',0.5);
+    xlabel('Residual load [GW]')
+    ylabel('Occurances [hours/year]')
+    legend('2030','2022','Location','Northwest')
+    title('Histogram of excess available renewable electricity')
+    grid
+    
+    rs2 = nexttile;
 
- Residual_excess = residual_load_curves;
- Residual_excess(Residual_excess>=0) = NaN; % delete all values that are zero or higher thus fossil required
- Residual_excess_cumsum = cumsum(Residual_excess);
- rs1 = nexttile;
- r2 = histogram(Residual_excess(:,2)./1000,'BinWidth',0.5);
- hold on
- r1 = histogram(Residual_excess(:,1)./1000,'BinWidth',0.5);
-  xlabel('Residual load [GW]')
- ylabel('Occurances [hours/year]')
- legend('2030','2022','Location','Northwest')
- title('Histogram of excess available renewable electricity')
- grid
- 
- rs2 = nexttile;
- 
- area(r2.BinEdges(1:length(r2.BinEdges)-1),cumsum(r2.Values))
- hold on
- area(r1.BinEdges(1:length(r1.BinEdges)-1),cumsum(r1.Values))
- 
- xlabel('Residual load [GW]')
- ylabel('Available [hours/year]')
- grid
- legend('2030 CDF','2022 CDF','Location','Northwest')
- jaar = 2;
- title(sprintf('Year: %.0f: Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000) )
+    area(r2.BinEdges(1:length(r2.BinEdges)-1),cumsum(r2.Values))
+    hold on
+    area(r1.BinEdges(1:length(r1.BinEdges)-1),cumsum(r1.Values))
 
-
- linkaxes([rs1 rs2],'x')
- xlim([min(Residual_excess(:,2)./1000) 0])
-
- print -dpng -r300 Excess_energy_depth_v2
-
-    %%
-h2 = histogram(residual_load_curves(:,2)./1000,'BinWidth',0.5);
-hold on
-h1 = histogram(residual_load_curves(:,1)./1000,'BinWidth',0.5);
+    xlabel('Residual load [GW]')
+    ylabel('Available [hours/year]')
+    grid
+    legend('2030 CDF','2022 CDF','Location','Northwest')
+    jaar = 2;
+    title(sprintf('Year: %.0f: Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000) )
 
 
-grid
-xlabel('Residual load [GW]')
-ylabel('Occurances [hours/year]')
+    linkaxes([rs1 rs2],'x')
+    xlim([min(Residual_excess(:,2)./1000) 0])
 
-xlim([-40 0])
+    print -dpng -r300 Excess_energy_depth_v2
 
-yyaxis right
-ylabel('Annual coverage [%]')
-h3 = cdfplot(residual_load_curves(:,2)./1000);
+end
+
 
 
 
@@ -621,7 +640,7 @@ for jaar = 1:2
         end
     end
 
-   
+
 
     OBC_power = 11e-3; % [MW] bidirecitonal power transfer capability per EV
     n_vehicles = 2.2e6; % [2030]
@@ -679,7 +698,7 @@ for jaar = 1:2
     rx1 = nexttile;
 
     % V2G discharge
-    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
+    area(time_array(:,jaar), (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar))/1000,'FaceColor','#7E2F8E') % Purple = #7E2F8E
 
 
     %plot(time_array,Produce_curve/1000)
@@ -695,34 +714,34 @@ for jaar = 1:2
     %start_point = 2500; % 7 June 2030
     start_point = 2900; %
     days = 14;
-    xlim([time_array(start_point), time_array(start_point+days*24)])
+    xlim([time_array(start_point,(jaar)), time_array(start_point+days*24,(jaar))])
     ylim([0 55])
 
 
 
 
     % Fossil residual
-    area(time_array, (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar) - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F
+    area(time_array(:,jaar), (Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) + residual_fossil_production(:,jaar) - P_V2G_discharge)/1000,'FaceColor','#A2142F') %  - Red = #A2142F
 
     % V2G charge: Wind + Solar
-    area(time_array,(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar))/1000,'FaceColor','#FF0000') % Bright Red = FF0000
+    area(time_array(:,jaar),(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar))/1000,'FaceColor','#FF0000') % Bright Red = FF0000
 
     % Solar (Solar-V2G charge)
-    area(time_array,(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#EDB120') % Yellow = EDB120
+    area(time_array(:,jaar),(Wind_sum_prod_hourly(:,jaar) + PV_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#EDB120') % Yellow = EDB120
     % area(time_array, residual_load_curve+merit_order_ETM_rawimport{:,57}+merit_order_ETM_rawimport{:,58}+merit_order_ETM_rawimport{:,59})
 
     %     % V2G Charge
     %     area(time_array,(Wind_sum_producers + P_V2G_charge)/1000,'FaceColor','#FF0000') % Bright Red
 
     % Wind: as last foreground color
-    area(time_array,(Wind_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#77AC30') % Grey
+    area(time_array(:,jaar),(Wind_sum_prod_hourly(:,jaar) - P_V2G_charge)/1000,'FaceColor','#77AC30') % Grey
 
 
     % ik wil graag overshot ook laten zien met stippelijn erboven over, of negatief?
     % negatief: opladen van batterij
 
-    plot(time_array, Consume_curves(:,jaar)/1000,'k')
-    plot(time_array, (Consume_curves(:,jaar) + P_V2G_charge)/1000,'--r')
+    plot(time_array(:,jaar), E_Load_curves(:,jaar)/1000,'k')
+    plot(time_array(:,jaar), (E_Load_curves(:,jaar) + P_V2G_charge)/1000,'--r')
 
     legend('V2G discharge','Residual load (mainly fossil backup)','V2G charge','PV solar (household+buildings+central)','Wind energy (inland, coastal, and offshore)','Consumption (inflexible)','Consumption (incl flexible)')
     grid
@@ -735,27 +754,27 @@ for jaar = 1:2
     %% Plot B - Limited Storage only excess energy stored and fed back
     ax2 = nexttile;
 
-    if 1 == 2 
-    % Histogram of storage size
-            figure
-            h1 = histogram(Storage/1e3);
-            h1.BinWidth = 5;
-            xlim([0 600])
-            ylabel('Hours per year')
-            hold on
-            yyaxis right
-            ylabel('Annual coverage [%]')
-            h2 = cdfplot(Storage/1e3);
-            xlabel('GWh storage capacity')
-            ylim([0 1.0])
-            legend('Histogram','Cumulative distribution function')
+    if 1 == 2
+        % Histogram of storage size
+        figure
+        h1 = histogram(Storage/1e3);
+        h1.BinWidth = 5;
+        xlim([0 600])
+        ylabel('Hours per year')
+        hold on
+        yyaxis right
+        ylabel('Annual coverage [%]')
+        h2 = cdfplot(Storage/1e3);
+        xlabel('GWh storage capacity')
+        ylim([0 1.0])
+        legend('Histogram','Cumulative distribution function')
     end
 
 
-    plot(time_array,Storage_unlim/1000)
+    plot(time_array(:,jaar),Storage_unlim/1000)
     hold on
     %plot(time_array,Residual_excess_cumsum/1000)
-    plot(time_array,Storage_V2G/1000)
+    plot(time_array(:,jaar),Storage_V2G/1000)
 
     xlabel('Time')
     ylabel('Storage [GWh] positive is charging')
@@ -780,12 +799,12 @@ for jaar = 1:2
     %yyaxis right
 
 
-    plot(time_array,price_electricity(:,jaar),'Color','#D95319')
+    plot(time_array(:,jaar),price_electricity(:,jaar),'Color','#D95319')
     legend('Electricity price')
     xlabel('Time')
     ylabel('€/MWh')
     grid
-    xlim([time_array(start_point), time_array(start_point+days*24)])
+    xlim([time_array(start_point,jaar), time_array(start_point+days*24,jaar)])
     %title('Electricity prices')
     title(sprintf('Electricity prices - Annual avg: %.1f, sigma: %.1f, Free electricity: %.0f hours/year',Price_avg(jaar), Price_sigma(jaar), Price_zero_hours(jaar) ) )
 
@@ -834,7 +853,7 @@ for jaar = 1:2
 
 
     linkaxes([rx1 ax2 ax3],'x')
-    rx1.XLim = [time_array(start_point), time_array(start_point+days*24)];
+    rx1.XLim = [time_array(start_point,jaar), time_array(start_point+days*24,jaar)];
 
 end
 
@@ -848,7 +867,7 @@ end
 % save_fig(h0,'Lipton_PDF_v4_2');     % uses minimized edge borders
 
 % Save figure as png
-print -dpng -r300 Lipton_v4_5_increase_demand
+print -dpng -r300 Lipton_v4_5_18_mei
 
 
 %% Find names of largest producers
