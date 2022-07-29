@@ -37,7 +37,7 @@ x = np.arange(0,4*np.pi-1,0.1)   # start,stop,step
 y = np.sin(x)
 z = np.cos(x)
 
-plt.figure(dpi=1200)
+#plt.figure(dpi=1200)
 
 
 plt.plot(x,y,x,z)
@@ -48,3 +48,4 @@ plt.legend(['sin(x)', 'cos(x)'])      # legend entries as seperate strings in a 
 plt.show()
 
 plt.savefig('filename.pdf' )
+
