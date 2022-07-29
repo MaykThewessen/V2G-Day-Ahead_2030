@@ -214,7 +214,7 @@ bid_incl_exponential = log(gasplant_marginal_cost/fossil_min_price)/(gasplant_no
 % exponential price options:
 price_electricity(:,1) = fossil_min_price.*exp(residual_load_curves(:,1).*bid_incl_exponential(1)); % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
 price_electricity(:,2) = fossil_min_price.*exp(residual_load_curves(:,2).*bid_incl_exponential(2)); % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
-price_electricity(residual_load_curves==0) = 0; % set price to 0 for moments of excess electricity
+price_electricity(residual_load_curves<0) = 0; % set price to 0 for moments of excess electricity
 
 
 % make something that if no fossil prod; then elec price is 0.
