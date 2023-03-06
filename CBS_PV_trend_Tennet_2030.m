@@ -62,7 +62,7 @@ plot(years,Y,'--')
 plot(2030,46.2,'o','Color','#7E2F8E')
 legend('CBS actual installed numbers','Tennet IP2022 scenario: International Ambitie','Tennet IP2022 scenario: Klimaatakkoord','Tennet IP2022 scenario: Nationale Drijfveer','Location','Northwest')
 
-save_fig(h0,'CBS_PV_trend_sigmoid_tight');
+%save_fig(h0,'CBS_PV_trend_sigmoid_tight');
 
 %% Sigmoid function automatic curve fitting toolbox - does not work correctly yet
 x = [PV.year; 2030];

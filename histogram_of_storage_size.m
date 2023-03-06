@@ -37,5 +37,5 @@ set(gca,'YScale','log')
 xlim([5 2000])
 ylim([1 500])
 
-save_fig(h0,'histogram_of_storage_size_log');
-print -dpng -r300 histogram_of_storage_size_log
+save_fig(h0,'histogram_of_storage_size_log_1GW');
+print -dpng -r300 histogram_of_storage_size_log_1GW

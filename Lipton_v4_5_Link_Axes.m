@@ -200,16 +200,16 @@ residual_fossil_production(residual_fossil_production<0) = 0; % [MW] only save p
 %price_electricity(residual_fossil_production==0) = 0; % set price to 0 for moments of excess electricity
 
 % v5 price based on gas and CO2 price
-gas = [40; 80]; % €/MWh thermal for low and high scenario
-plant_eff = 0.55; % [-] thermal to elec eff
+gas = [55; 80]; % €/MWh thermal for low and high scenario
+plant_eff = 0.49; % [-] thermal to elec eff
 gasplant_fuel_cost = gas./plant_eff;
-CO2_price = [80; 150]; % €/tCO2 emitted in 2022 and in 2030
+CO2_price = [85; 150]; % €/tCO2 emitted in 2022 and in 2030
 CO2_emit_gas_plant = 549; % gCO2/kWh = kgCO2/MWh thermal gas
 CO2_marginal_cost = CO2_price .* CO2_emit_gas_plant./1000; % €/MWh additional due to CO2 costs
 gasplant_marginal_cost = gasplant_fuel_cost + CO2_marginal_cost  % €/MWh electricity delivered marginal costs
 
 fossil_min_price = 59.8; % €/MWh
-gasplant_nom_cost_at_residual_load = 20; % GW
+gasplant_nom_cost_at_residual_load = 12; % GW
 bid_incl_exponential = log(gasplant_marginal_cost/fossil_min_price)/(gasplant_nom_cost_at_residual_load*1000);
 % exponential price options:
 price_electricity(:,1) = fossil_min_price.*exp(residual_load_curves(:,1).*bid_incl_exponential(1)); % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
@@ -385,6 +385,11 @@ Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [
 
 
 
+
+
+
+
+
 %% Statistics
 % Production volumes
 Prod_annual = sum(Produce_curve)/1000 % [GWh electricity]
@@ -418,6 +423,66 @@ Price_only_pos_avg  =  mean(price_electricity.*elec_price_pos_location); %
 % Price_only_pos_avg(2)  =  mean(price_electricity(price_electricity(:,2)>0,2)) % this shows the price during fossil production hours - non volume weighted
 
 
+
+
+%% Daily price statistisc, 24h grouped histogram, and make difference for winter vs summer, hypothesis: summer daily low prices during day, winter: daily low prices during low load hours at night 00:00-05:00
+
+% Jaar 2022:
+price_electricity_reshaped_2022 = reshape(price_electricity(:,1), 24, 365);
+price_electricity_dayhouravg_2022 = sum(price_electricity_reshaped_2022')./365;
+% Jaar 2030:
+price_electricity_reshaped_2030 = reshape(price_electricity(:,2), 24, 365);
+price_electricity_dayhouravg_2030 = sum(price_electricity_reshaped_2030')./365;
+
+
+if 1 == 1
+
+    h = figure;
+stairs(price_electricity_dayhouravg_2022,'LineWidth',2)
+hold on
+stairs(price_electricity_dayhouravg_2030,'LineWidth',2)
+xlabel('hour of the day')
+ylabel('annual averaged electricity price at that hour of the day')
+grid
+title('whole year average, summer incl winter')
+
+
+% version 2: add summer sunny PV year part, from 1 march to 1 oct = 7 months
+time_sunny_pv_start = 1417; % 01-03-2020 om 00:00
+time_sunny_pv_end = 6553; % 01-10-2020 om 00:00
+time_sunny_diff_sunny = (time_sunny_pv_end - time_sunny_pv_start)/24;
+
+
+% price_electricity_reshaped_2022_sunny = reshape(price_electricity(time_sunny_pv_start:time_sunny_pv_end-1,1), [], 24);
+% price_electricity_dayhouravg_2022_sunny = sum(price_electricity_reshaped_2022_sunny)./time_sunny_diff;
+%stairs(price_electricity_dayhouravg_2022_sunny)
+%hold on
+
+% Jaar 2030:
+price_electricity_reshaped_2030_sunny = reshape(price_electricity(time_sunny_pv_start:time_sunny_pv_end-1,2), 24, []);
+price_electricity_dayhouravg_2030_sunny = sum(price_electricity_reshaped_2030_sunny')./time_sunny_diff_sunny;
+
+stairs(price_electricity_dayhouravg_2030_sunny,'LineWidth',2)
+
+
+% winter low PV part: 1 oct to 1 march = 5 months
+time_sunny_diff_windy = (time_sunny_pv_start + length(time_array_orig) - time_sunny_pv_end)/24;
+
+price_electricity_windy_A = price_electricity(1:time_sunny_pv_start-1,2);
+price_electricity_windy_B = price_electricity(time_sunny_pv_end:end,2);
+price_electricity_windy = [price_electricity_windy_A; price_electricity_windy_B];
+
+price_electricity_reshaped_2030_windy = reshape(price_electricity_windy, 24, []);
+price_electricity_dayhouravg_2030_windy = sum(price_electricity_reshaped_2030_windy')./time_sunny_diff_windy;
+stairs(price_electricity_dayhouravg_2030_windy,'LineWidth',2)
+
+
+legend('regular 2019 year','2030 whole year','2030 sunny months: 1 march to 1 oct','2030 darker winter months')
+
+    
+ save_fig(h,'2030 daily hourly avg electricity price_v2');
+end 
+% TODO: check if 24 hours are aligned and are not mismatched one hour per day. well issue would be not too big, since it will only shift the histogram an hour, not more than that.
 
 
 %% 2022 PV - %% Scatter plot to gain insight in PV time-price-production
@@ -831,8 +896,8 @@ for jaar = 1:2
 rx1 = nexttile;
 
     %start_point = 3100 = 11 May
-    strtPt = 3200; %
-    days = 14;
+    strtPt = 3200; %3200
+    days = 10;
     endPt = strtPt+days*24;
 
     % V2G discharge
@@ -893,8 +958,8 @@ rx1 = nexttile;
     if 1 == 2
         % Histogram of storage size
         figure
-        h1 = histogram(Storage/1e3);
-        h1.BinWidth = 5;
+        h1 = histogram(Storage/1e3,'Binwidth',5);
+        %h1.BinWidth = 5;
         xlim([0 600])
         ylabel('Hours per year')
         hold on
@@ -973,17 +1038,20 @@ rx1 = nexttile;
 
     %% Plot D - histogram electricity price
     ax4 = nexttile;
-    h_elec = histogram(price_electricity(:,jaar));
-    h_elec.BinWidth = 5;
+    h_elec_1 = histogram(price_electricity(:,1),'Binwidth',5);
+    hold on
+    h_elec_2 = histogram(price_electricity(:,2),'Binwidth',5);
+    % h_elec.BinWidth = 5;
+   
 
     grid
     xlim([0 250])
-    ylim([0 1200])
+    ylim([0 1.05*max(h_elec_1.Values)])
     xlabel('Electricity price [€/MWh]')
     ylabel('Occurance [hours per year]')
     title('Probability distribution of Electricity price')
     title(sprintf('Electricity prices - PV dyn curtailed: %.1f perc, PV avg worth: %.1f €/MWh, Wind dyn curtialed: %.1f perc, Wind avg worth: %.1f €/MWh', 100.*PV_energy_curtailed_part(jaar), PV_avg_elec_price_avail(jaar), 100.*Wind_energy_curtailed_part(jaar), Wind_avg_elec_price_avail(jaar) ) )
-
+    legend('2022','2030')
 
 
 
@@ -1005,7 +1073,7 @@ end
 
 %% Save figure as png
 
-% save_fig(h0,'Lipton_v4_5_28_Juli');
+ save_fig(h0,'Lipton_v4_5_Feb2023');
 
 % print -dpng -r300 Lipton_v4_5_28_Juli
 
