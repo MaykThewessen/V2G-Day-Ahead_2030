@@ -200,16 +200,16 @@ residual_fossil_production(residual_fossil_production<0) = 0; % [MW] only save p
 %price_electricity(residual_fossil_production==0) = 0; % set price to 0 for moments of excess electricity
 
 % v5 price based on gas and CO2 price
-gas = [55; 80]; % €/MWh thermal for low and high scenario
-plant_eff = 0.49; % [-] thermal to elec eff
+gas = [22; 28]; % €/MWh thermal for 2022 and 2030 scenario
+plant_eff = 0.56; % [-] thermal to elec eff
 gasplant_fuel_cost = gas./plant_eff;
 CO2_price = [85; 150]; % €/tCO2 emitted in 2022 and in 2030
 CO2_emit_gas_plant = 549; % gCO2/kWh = kgCO2/MWh thermal gas
 CO2_marginal_cost = CO2_price .* CO2_emit_gas_plant./1000; % €/MWh additional due to CO2 costs
 gasplant_marginal_cost = gasplant_fuel_cost + CO2_marginal_cost  % €/MWh electricity delivered marginal costs
 
-fossil_min_price = 59.8; % €/MWh
-gasplant_nom_cost_at_residual_load = 12; % GW
+fossil_min_price = 44; % €/MWh
+gasplant_nom_cost_at_residual_load = 15; % GW
 bid_incl_exponential = log(gasplant_marginal_cost/fossil_min_price)/(gasplant_nom_cost_at_residual_load*1000);
 % exponential price options:
 price_electricity(:,1) = fossil_min_price.*exp(residual_load_curves(:,1).*bid_incl_exponential(1)); % [€/MWh] and if residual < 0 than €0/MWh if 0 fossil production or negative residual = excess reneawble energly production
@@ -1092,7 +1092,34 @@ Largest_prod_cons_table = table(Producer_type_name,Produced_MWh_year,merit_prod_
 
 
 
+%% Save prices to xlsx
+h8 = figure();
+stairs(time_array(:,2),price_electricity(:,2))
+hold on
+stairs(time_array(:,2),price_electricity(:,1))
+grid
+legend('2030 Matlab','2022 reverse modelled')
+ylabel('Hourly Day-Ahead market Electricity price €/MWh')
+title(sprintf('Year: %.0f, Consumption: %.1f TWh, %.1f GW Wind, %.1f GWp PV, Wind gen: %.0f prct, PV gen: %.0f prct', jaren(jaar),Cons_annual(jaar)/1000, P_wind_installed_array(jaar)/1000  ,P_zon_installed_array(jaar)/1000,  Prod_wind_perc(jaar)*100,  Prod_solar_perc(jaar)*100) )
+
+%%
+save_fig(h8,'Matlab-Day-Ahead-prices-2022-2030');
 
 
+%%
+price_electricity_table = table;
+
+price_electricity_table.time = time_array(:,2);
+price_electricity_table.price_2022 = price_electricity(:,1);
+price_electricity_table.price_2030 = price_electricity(:,2);
 
 
+%%
+
+writetable(price_electricity_table,'Matlab-Day-Ahead-prices-2022-2030_table.xlsx')
+writetable(price_electricity_table,'Matlab-Day-Ahead-prices-2022-2030_table.csv')
+
+%xlswrite('Matlab-Day-Ahead-prices-2022-2030_table.xlsx',price_electricity_table)
+
+% writematrix(price_electricity,'M_tab.csv')
+% csvwrite('price_electricity_upto1200.csv',price_electricity)
