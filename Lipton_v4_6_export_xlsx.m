@@ -1,4 +1,4 @@
-% Origin:       Tuesday 8 Feb 2022
+ % Origin:       Tuesday 8 Feb 2022
 % Author:       Mayk Thewessen
 % Department:   Strategy - Research
 % Intent:       Electricity market NL analysis for Vehicle-to-Grid in 2030
@@ -252,7 +252,7 @@ end
 PV_sum_prod_hourly_curtail = PV_sum_prod_hourly .* Curtail_ratio_topped;
 
 
-if 1 == 2 % plot om te controleren:
+if 1 == 1 % plot om te controleren:
     h_pv_curt = figure();
     plot(time_array(:,2),PV_sum_prod_hourly(:,2)./1e3,'--')
     hold on
@@ -271,6 +271,17 @@ PV_elec_price = price_electricity; % initiate
 
 
 
+if 1 == 1
+    h_9 = figure();
+    
+    subplot(1,2,1)
+    plot(time_array(:,2),PV_sum_prod_hourly_curtail(:,2)./1e3)
+    ylabel('Solar Power generation [MW]')
+    
+    subplot(2,1,2)
+    plot(time_array(:,2),PV_sum_prod_hourly_curtail(:,2)./1e3)
+
+end
 
 
 
@@ -304,7 +315,7 @@ end
 Wind_elec_price = price_electricity; % initiate
 
 
-%% PV and Wind electricity prices
+%% PV weighted electricity prices
 
 PV_elec_price(PV_sum_prod_hourly_curtail == 0) = 0; % set price to zero when PV does not produce, is maybe not necessary since PV production volume is still zero at these instances, thus when multiplying this does not add up, but still handy if non-weighted avg elec price is wanted
 PV_revenue_hourly = PV_elec_price .* PV_sum_prod_hourly_curtail; % [€/MWh * MWh] = [€] for every hour
@@ -319,10 +330,7 @@ PV_avg_elec_price_avail = PV_revenue_curt ./ PV_prod_all_annual_volume % [€/MW
 PV_avg_elec_price_curt = PV_revenue_curt ./ PV_prod_curt_annual_volume % [€/MWh]
 
 
-
-
-
-%%
+%
 if 1 == 2  % plot PV price over year 2022
     plot(time_array,PV_elec_price(:,1))
     ylabel('price [€/MWh]')
@@ -339,7 +347,7 @@ if 1 == 2  % plot PV price over year 2022
     print -dpng -r300 PV_price_2022_week_in_April_title
 end
 
-if 1 == 2  % plot PV price over year 2030
+if 1 == 1  % plot PV price over year 2030
     plot(time_array(:,2),PV_elec_price(:,2))
     ylabel('price [€/MWh]')
     yyaxis right
@@ -371,6 +379,11 @@ if 1 == 2 % PV dynamic curtailment per year
     print -dpng -r300 PV_curtailment_2030_week_in_April
 end
 
+
+
+
+%% Wind PV weighted electricity prices
+
 Wind_elec_price(Wind_sum_prod_hourly_curtail == 0) = 0;
 Wind_revenue_hourly = PV_elec_price .* Wind_sum_prod_hourly_curtail;
 Wind_revenue_curt = sum(Wind_revenue_hourly); % [€ per year for whole installed base]
@@ -382,8 +395,6 @@ Wind_full_load_factor_avail = Wind_prod_all_annual_volume ./ (P_wind_installed_a
 Wind_full_load_factor_curt = Wind_prod_curt_annual_volume ./ (P_wind_installed_array'*365*24) % [hours/year]
 Wind_avg_elec_price_avail = Wind_revenue_curt ./ Wind_prod_all_annual_volume % [€/MWh]
 Wind_avg_elec_price_curt = Wind_revenue_curt ./ Wind_prod_curt_annual_volume % [€/MWh]
-
-
 
 
 
